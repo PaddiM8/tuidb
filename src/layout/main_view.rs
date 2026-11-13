@@ -1,13 +1,13 @@
 use crossterm::event::KeyEvent;
 use ratatui::{
     Frame,
-    layout::{Constraint, Layout},
+    layout::{Constraint, Layout, Rect},
     style::Style,
     widgets::{Block, Paragraph},
 };
 
 use crate::{
-    connection::Connection,
+    config::ConnectionEntry,
     keymap::Keymap,
     layout::{
         Action, Job, View,
@@ -15,70 +15,54 @@ use crate::{
     },
 };
 
+#[derive(Copy, Clone, PartialEq, Eq)]
+enum MainPane {
+    Sidebar,
+    QueryEditor,
+    Grid,
+}
+
 pub struct MainView {
     pub should_quit: bool,
-    connection: Connection,
-    components: Vec<Box<dyn Component>>,
-    sidebar_id: usize,
-    query_editor_id: usize,
-    grid_id: usize,
+    sidebar: Sidebar,
+    query_editor: QueryEditor,
+    grid: DataGrid,
     keymap: Keymap,
-    focused_id: usize,
+    active: MainPane,
     is_fullscreen: bool,
 }
 
 impl MainView {
-    pub fn new(connection: Connection) -> Self {
-        let mut components: Vec<Box<dyn Component>> = Vec::new();
-
-        let sidebar_index = components.len();
-        components.push(Box::new(Sidebar::new(vec![], Keymap::default_selection())));
-
-        let editor_index = components.len();
-        components.push(Box::new(QueryEditor::new()));
-
-        let grid_index = components.len();
-        components.push(Box::new(DataGrid::new(
+    pub fn new() -> Self {
+        let sidebar = Sidebar::new(vec![], Keymap::default_selection());
+        let query_editor = QueryEditor::new();
+        let grid = DataGrid::new(
             vec![String::from("test1"), String::from("test2")],
             Keymap::default_selection(),
-        )));
+        );
 
         Self {
             should_quit: false,
-            connection: connection,
-            components: components,
-            sidebar_id: sidebar_index,
-            query_editor_id: editor_index,
-            grid_id: grid_index,
+            sidebar: sidebar,
+            query_editor: query_editor,
+            grid: grid,
             keymap: Keymap::default_global(),
-            focused_id: 0,
+            active: MainPane::QueryEditor,
             is_fullscreen: false,
         }
     }
 
     pub fn query_editor_mut(&mut self) -> &mut QueryEditor {
-        self.components[self.query_editor_id]
-            .as_any_mut()
-            .downcast_mut::<QueryEditor>()
-            .unwrap()
-    }
-
-    fn focused_mut(&mut self) -> &mut dyn Component {
-        self.components[self.focused_id].as_mut()
-    }
-
-    fn get_block_for_id<'a>(&self, title: &'a str, id: usize) -> Block<'a> {
-        let border_style = if self.focused_id == id {
-            Style::new().cyan()
-        } else {
-            Style::new().dark_gray()
-        };
-
-        Block::bordered().title(title).border_style(border_style)
+        &mut self.query_editor
     }
 
     fn handle_key_in_component(&mut self, event: KeyEvent) -> Option<Job> {
-        let job = self.focused_mut().handle_key(event);
+        let job = match self.active {
+            MainPane::Sidebar => self.sidebar.handle_key(event),
+            MainPane::QueryEditor => self.query_editor.handle_key(event),
+            MainPane::Grid => self.grid.handle_key(event),
+        };
+
         if let Some(job) = job {
             self.try_handle_job_globally(&job);
             return None;
@@ -93,18 +77,68 @@ impl MainView {
         } else if let Job::ToggleFullscreen = job {
             self.is_fullscreen = !self.is_fullscreen;
         } else if let Job::FocusLeft = job {
-            self.focused_id = self.sidebar_id;
+            self.active = MainPane::Sidebar;
         } else if let Job::FocusUp = job {
-            self.focused_id = self.query_editor_id;
+            self.active = MainPane::QueryEditor;
         } else if let Job::FocusRight = job {
-            self.focused_id = self.query_editor_id;
+            self.active = MainPane::QueryEditor;
         } else if let Job::FocusDown = job {
-            self.focused_id = self.grid_id;
+            self.active = MainPane::QueryEditor;
         } else {
             return false;
         }
 
         true
+    }
+
+    pub fn render(&mut self, frame: &mut Frame, connection: &ConnectionEntry) {
+        if self.is_fullscreen {
+            self.render_pane(self.active, frame, frame.area());
+            return;
+        }
+
+        let [content_area, status_bar_area] =
+            Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(frame.area());
+
+        let [sidebar_area, main_area] =
+            Layout::horizontal([Constraint::Length(24), Constraint::Fill(1)]).areas(content_area);
+
+        let [editor_area, grid_area] =
+            Layout::vertical([Constraint::Length(12), Constraint::Fill(1)]).areas(main_area);
+
+        self.render_pane(MainPane::Sidebar, frame, sidebar_area);
+        self.render_pane(MainPane::QueryEditor, frame, editor_area);
+        self.render_pane(MainPane::Grid, frame, grid_area);
+
+        let connection_name = Paragraph::new::<&str>(connection.name.as_ref());
+        frame.render_widget(connection_name, status_bar_area);
+    }
+
+    fn render_pane(&mut self, pane: MainPane, frame: &mut Frame, area: Rect) {
+        match pane {
+            MainPane::Sidebar => {
+                let sidebar_block = self.get_block_for_id("Tables", MainPane::Sidebar);
+                self.sidebar.render(frame, area, sidebar_block);
+            }
+            MainPane::QueryEditor => {
+                let editor_block = self.get_block_for_id("Query", MainPane::QueryEditor);
+                self.query_editor.render(frame, area, editor_block);
+            }
+            MainPane::Grid => {
+                let grid_block = self.get_block_for_id("Result", MainPane::Grid);
+                self.grid.render(frame, area, grid_block);
+            }
+        }
+    }
+
+    fn get_block_for_id<'a>(&self, title: &'a str, pane: MainPane) -> Block<'a> {
+        let border_style = if self.active == pane {
+            Style::new().cyan()
+        } else {
+            Style::new().dark_gray()
+        };
+
+        Block::bordered().title(title).border_style(border_style)
     }
 }
 
@@ -125,42 +159,6 @@ impl View for MainView {
         }
 
         return self.handle_key_in_component(event);
-    }
-
-    fn render(&mut self, frame: &mut Frame) {
-        if self.is_fullscreen {
-            let focused_block = self.get_block_for_id("", self.focused_id);
-            self.focused_mut()
-                .render(frame, frame.area(), focused_block);
-            return;
-        }
-
-        let [content_area, status_bar_area] =
-            Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(frame.area());
-
-        let [sidebar_area, main_area] =
-            Layout::horizontal([Constraint::Length(24), Constraint::Fill(1)]).areas(content_area);
-
-        let [editor_area, grid_area] =
-            Layout::vertical([Constraint::Length(12), Constraint::Fill(1)]).areas(main_area);
-
-        let connection_name = Paragraph::new(self.connection.name.clone());
-        frame.render_widget(connection_name, status_bar_area);
-
-        let sidebar_block = self.get_block_for_id("Tables", self.sidebar_id);
-        self.components[self.sidebar_id]
-            .as_mut()
-            .render(frame, sidebar_area, sidebar_block);
-
-        let editor_block = self.get_block_for_id("Query", self.query_editor_id);
-        self.components[self.query_editor_id]
-            .as_mut()
-            .render(frame, editor_area, editor_block);
-
-        let grid_block = self.get_block_for_id("Result", self.grid_id);
-        self.components[self.grid_id]
-            .as_mut()
-            .render(frame, grid_area, grid_block);
     }
 }
 

@@ -1,6 +1,6 @@
 use crossterm::event::{Event, KeyEvent};
 use nucleo_matcher::{
-    Matcher,
+    Matcher, Utf32Str,
     pattern::{CaseMatching, Normalization, Pattern},
 };
 use ratatui::{
@@ -22,8 +22,8 @@ pub struct FindDialog {
     keymap: Keymap,
     matcher: Matcher,
     input: Input,
-    items: Vec<String>,
     state: ListState,
+    filtered_indices: Vec<usize>,
 }
 
 impl FindDialog {
@@ -36,53 +36,26 @@ impl FindDialog {
             keymap: keymap,
             matcher: Matcher::new(nucleo_matcher::Config::DEFAULT),
             input: Input::new(String::new()),
-            items: vec![
-                String::from("Connection 1"),
-                String::from("Connection 2"),
-                String::from("Abc"),
-                String::from("Con"),
-                String::from("Lorem ipsum"),
-            ],
             state: state,
+            filtered_indices: Vec::new(),
         }
     }
 
-    pub fn selected_value(&self) -> Option<String> {
+    pub fn reset(&mut self) {
+        self.state = ListState::default();
+        self.input.reset();
+        self.filtered_indices.clear();
+    }
+
+    pub fn selected(&self) -> Option<usize> {
         if let Some(index) = self.state.selected() {
-            Some(self.items[index].clone())
+            self.filtered_indices.get(index).copied()
         } else {
             None
         }
     }
-}
 
-impl Component for FindDialog {
-    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
-        self
-    }
-
-    fn handle_key(&mut self, event: KeyEvent) -> Option<Job> {
-        if let Some(action) = self.keymap.resolve_event(event) {
-            let base_job = build_dialog_job(&action);
-            if base_job.is_some() {
-                return base_job;
-            }
-
-            match action {
-                Action::Up => self.state.select_previous(),
-                Action::Down => self.state.select_next(),
-                _ => (),
-            }
-
-            return None;
-        }
-
-        self.input.handle_event(&Event::Key(event));
-
-        None
-    }
-
-    fn render(&mut self, frame: &mut Frame, area: Rect, block: Block) {
+    pub fn render(&mut self, frame: &mut Frame, area: Rect, block: Block, items: &Vec<&str>) {
         let area = super::centered(area, area.width.min(40), area.height.min(15));
         frame.render_widget(
             Block::new().style(Style::default().add_modifier(Modifier::DIM)),
@@ -116,19 +89,62 @@ impl Component for FindDialog {
         frame.set_cursor_position((input_area.x + x as u16, input_area.y));
 
         // List
-        let results: Vec<&str> = Pattern::parse(
+        let pattern = Pattern::parse(
             &self.input.to_text().to_string(),
             CaseMatching::Smart,
             Normalization::Smart,
-        )
-        .match_list(&self.items, &mut self.matcher)
-        .into_iter()
-        .map(|(s, _score)| s.as_ref())
-        .collect();
+        );
+
+        let mut buffer = Vec::new();
+        let mut scored: Vec<(usize, u32)> = items
+            .iter()
+            .enumerate()
+            .filter_map(|(index, item)| {
+                pattern
+                    .score(Utf32Str::new(&item, &mut buffer), &mut self.matcher)
+                    .map(|score| (index, score))
+            })
+            .collect();
+
+        // Sort by the score
+        scored.sort_by(|a, b| b.1.cmp(&a.1));
+        self.filtered_indices = scored.iter().map(|(index, _)| index.to_owned()).collect();
+
+        if let None = self.selected() {
+            self.state.select_first();
+        }
+
+        let mut results = Vec::new();
+        for index in &self.filtered_indices {
+            results.push(items[*index]);
+        }
 
         let list = List::new(results)
             .block(Block::new())
             .highlight_style(Style::new().reversed());
         frame.render_stateful_widget(list, list_area, &mut self.state);
+    }
+}
+
+impl Component for FindDialog {
+    fn handle_key(&mut self, event: KeyEvent) -> Option<Job> {
+        if let Some(action) = self.keymap.resolve_event(event) {
+            let base_job = build_dialog_job(&action);
+            if base_job.is_some() {
+                return base_job;
+            }
+
+            match action {
+                Action::Up => self.state.select_previous(),
+                Action::Down => self.state.select_next(),
+                _ => (),
+            }
+
+            return None;
+        }
+
+        self.input.handle_event(&Event::Key(event));
+
+        None
     }
 }

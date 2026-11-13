@@ -101,13 +101,31 @@ impl DataGrid {
             rendered_height: 0,
         }
     }
+
+    pub fn render(&mut self, frame: &mut Frame, area: Rect, block: Block) {
+        let widths = [
+            Constraint::Length(8),
+            Constraint::Length(8),
+            Constraint::Length(8),
+            Constraint::Length(8),
+        ];
+
+        self.rendered_width = block.inner(area).width;
+        self.rendered_height = block.inner(area).height;
+
+        let table = Table::lazy_rows(self.items.len(), widths, |i| build_row(&self.items, i))
+            .widths(widths)
+            .header(Row::new(self.header.clone()).bold())
+            .row_highlight_style(Style::new().on_dark_gray())
+            .column_highlight_style(Style::new().on_dark_gray())
+            .cell_highlight_style(Style::new().reversed())
+            .block(block);
+
+        frame.render_stateful_widget(table, area, &mut self.state);
+    }
 }
 
 impl Component for DataGrid {
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
     fn handle_key(&mut self, event: KeyEvent) -> Option<Job> {
         match self.keymap.resolve_event(event) {
             Some(Action::Left) => {
@@ -140,28 +158,6 @@ impl Component for DataGrid {
             }
             _ => None,
         }
-    }
-
-    fn render(&mut self, frame: &mut Frame, area: Rect, block: Block) {
-        let widths = [
-            Constraint::Length(8),
-            Constraint::Length(8),
-            Constraint::Length(8),
-            Constraint::Length(8),
-        ];
-
-        self.rendered_width = block.inner(area).width;
-        self.rendered_height = block.inner(area).height;
-
-        let table = Table::lazy_rows(self.items.len(), widths, |i| build_row(&self.items, i))
-            .widths(widths)
-            .header(Row::new(self.header.clone()).bold())
-            .row_highlight_style(Style::new().on_dark_gray())
-            .column_highlight_style(Style::new().on_dark_gray())
-            .cell_highlight_style(Style::new().reversed())
-            .block(block);
-
-        frame.render_stateful_widget(table, area, &mut self.state);
     }
 }
 

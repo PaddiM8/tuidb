@@ -1,20 +1,27 @@
+use color_eyre::eyre::{ContextCompat, Result};
 use crossterm::event::{self, Event, KeyEventKind};
 use ratatui::DefaultTerminal;
 
-use crate::app::App;
+use crate::{app::App, config::Config};
 mod app;
-mod connection;
+mod config;
 mod keymap;
 mod layout;
 
-fn main() -> color_eyre::Result<()> {
+fn main() -> Result<()> {
     color_eyre::install()?;
     ratatui::run(run)?;
     Ok(())
 }
 
-fn run(terminal: &mut DefaultTerminal) -> std::io::Result<()> {
-    let mut app = App::new();
+fn run(terminal: &mut DefaultTerminal) -> Result<()> {
+    let path = dirs::config_dir()
+        .context("could not determine config directory")?
+        .join("tuidb")
+        .join("config.toml");
+    let config = Config::load_from_path(&path)?;
+    let mut app = App::new(config);
+
     while !app.should_quit {
         terminal.draw(|frame| app.render(frame))?;
 

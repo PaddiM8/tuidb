@@ -1,5 +1,4 @@
 use crossterm::event::KeyEvent;
-use ratatui::Frame;
 
 pub mod components;
 pub mod dialogs;
@@ -8,8 +7,6 @@ pub mod start_view;
 
 pub trait View {
     fn handle_key(&mut self, event: KeyEvent) -> Option<Job>;
-
-    fn render(&mut self, frame: &mut Frame);
 }
 
 #[derive(Clone, Debug)]
@@ -47,7 +44,7 @@ pub enum Job {
     Quit,
 
     // Main
-    OpenConnection(String),
+    OpenConnection(usize),
     OpenTable(String),
     RunQuery(String),
 

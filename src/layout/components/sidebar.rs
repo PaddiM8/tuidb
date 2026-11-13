@@ -27,13 +27,16 @@ impl Sidebar {
             keymap,
         }
     }
+
+    pub fn render(&mut self, frame: &mut Frame, area: Rect, block: Block) {
+        let list = List::new(self.items.iter().map(|s| s.as_str()))
+            .block(block)
+            .highlight_style(Style::new().reversed());
+        frame.render_stateful_widget(list, area, &mut self.state);
+    }
 }
 
 impl Component for Sidebar {
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
     fn handle_key(&mut self, event: KeyEvent) -> Option<Job> {
         match self.keymap.resolve_event(event) {
             Some(Action::Down) => {
@@ -50,12 +53,5 @@ impl Component for Sidebar {
                 .map(|i| Job::OpenTable(self.items[i].clone())),
             _ => None,
         }
-    }
-
-    fn render(&mut self, frame: &mut Frame, area: Rect, block: Block) {
-        let list = List::new(self.items.iter().map(|s| s.as_str()))
-            .block(block)
-            .highlight_style(Style::new().reversed());
-        frame.render_stateful_widget(list, area, &mut self.state);
     }
 }

@@ -2,6 +2,7 @@ use crossterm::event::KeyEvent;
 use ratatui::{Frame, layout::Rect, widgets::Block};
 
 use crate::{
+    config::ConnectionEntry,
     keymap::Keymap,
     layout::{Action, Job, components::Component, dialogs::find_dialog::FindDialog},
 };
@@ -18,24 +19,32 @@ impl ConnectionsDialog {
             base_dialog: FindDialog::new(String::from("Connections"), keymap),
         }
     }
+
+    pub fn reset(&mut self) {
+        self.base_dialog.reset();
+    }
+
+    pub fn render(
+        &mut self,
+        frame: &mut Frame,
+        area: Rect,
+        block: Block,
+        connections: &Vec<ConnectionEntry>,
+    ) {
+        let connection_names = connections.iter().map(|c| c.name.as_ref()).collect();
+        self.base_dialog
+            .render(frame, area, block, &connection_names)
+    }
 }
 
 impl Component for ConnectionsDialog {
-    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
-        self
-    }
-
     fn handle_key(&mut self, event: KeyEvent) -> Option<Job> {
         if let Some(Action::Submit) = self.keymap.resolve_event(event)
-            && let Some(connection_name) = self.base_dialog.selected_value()
+            && let Some(connection_id) = self.base_dialog.selected()
         {
-            return Some(Job::OpenConnection(connection_name));
+            return Some(Job::OpenConnection(connection_id));
         }
 
         self.base_dialog.handle_key(event)
-    }
-
-    fn render(&mut self, frame: &mut Frame, area: Rect, block: Block) {
-        self.base_dialog.render(frame, area, block)
     }
 }

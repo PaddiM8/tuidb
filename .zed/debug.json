@@ -1,0 +1,9 @@
+[
+  {
+    "label": "Debug tuidb",
+    "adapter": "CodeLLDB",
+    "request": "launch",
+    "build": { "command": "cargo", "args": ["build"] },
+    "program": "$ZED_WORKTREE_ROOT/target/debug/tuidb"
+  }
+]

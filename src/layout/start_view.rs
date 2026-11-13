@@ -14,12 +14,14 @@ impl StartView {
     }
 }
 
+impl StartView {
+    pub fn render(&mut self, frame: &mut Frame) {
+        frame.render_widget(Clear, frame.area());
+    }
+}
+
 impl View for StartView {
     fn handle_key(&mut self, _: KeyEvent) -> Option<Job> {
         None
-    }
-
-    fn render(&mut self, frame: &mut Frame) {
-        frame.render_widget(Clear, frame.area());
     }
 }

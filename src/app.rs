@@ -6,7 +6,7 @@ use ratatui::{
 };
 
 use crate::{
-    connection::Connection,
+    config::Config,
     keymap::Keymap,
     layout::{
         Action, Job, View,
@@ -31,7 +31,9 @@ enum ActiveDialog {
 
 pub struct App {
     pub should_quit: bool,
+    config: Config,
     keymap: Keymap,
+    connection_id: Option<usize>,
     active_view: ActiveView,
     active_dialog: ActiveDialog,
     main_view: Option<MainView>,
@@ -40,10 +42,12 @@ pub struct App {
 }
 
 impl App {
-    pub fn new() -> Self {
+    pub fn new(config: Config) -> Self {
         Self {
             should_quit: false,
+            config: config,
             keymap: Keymap::default_global(),
+            connection_id: None,
             main_view: None,
             start_view: StartView::new(),
             active_view: ActiveView::Start,
@@ -86,8 +90,25 @@ impl App {
 
     pub fn render(&mut self, frame: &mut Frame) {
         match self.active_view {
-            ActiveView::Start => self.start_view.render(frame),
-            ActiveView::Main => self.main_view.as_mut().unwrap().render(frame),
+            ActiveView::Start => {
+                if let ActiveDialog::None = self.active_dialog {
+                    self.should_quit = true;
+                }
+
+                self.start_view.render(frame)
+            }
+            ActiveView::Main => {
+                if let Some(connection_id) = self.connection_id {
+                    self.main_view
+                        .as_mut()
+                        .unwrap()
+                        .render(frame, &self.config.connections[connection_id])
+                } else {
+                    self.connections_dialog.reset();
+                    self.set_view(ActiveView::Start);
+                    self.set_dialog(ActiveDialog::Connections);
+                }
+            }
         }
 
         if let ActiveDialog::Connections = self.active_dialog {
@@ -95,6 +116,7 @@ impl App {
                 frame,
                 frame.area(),
                 Block::bordered().border_style(Style::new().fg(Color::Cyan)),
+                &self.config.connections,
             );
         }
     }
@@ -111,9 +133,13 @@ impl App {
     fn handle_job(&mut self, job: Job) {
         match job {
             Job::CloseDialog => self.set_dialog(ActiveDialog::None),
-            Job::OpenConnectionsDialog => self.set_dialog(ActiveDialog::Connections),
-            Job::OpenConnection(connection_name) => {
-                self.main_view = Some(MainView::new(Connection::new(connection_name)));
+            Job::OpenConnectionsDialog => {
+                self.connections_dialog.reset();
+                self.set_dialog(ActiveDialog::Connections)
+            }
+            Job::OpenConnection(connection_id) => {
+                self.connection_id = Some(connection_id);
+                self.main_view = Some(MainView::new());
                 self.set_view(ActiveView::Main);
             }
             _ => (),

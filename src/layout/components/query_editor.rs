@@ -56,13 +56,28 @@ impl QueryEditor {
     pub fn open_system_editor(&mut self, terminal: &mut DefaultTerminal) -> std::io::Result<()> {
         edtui::system_editor::open(&mut self.state, terminal)
     }
+
+    pub fn render(&mut self, frame: &mut Frame, area: Rect, block: Block) {
+        let transparent = Style::default().bg(Color::Reset).fg(Color::Reset);
+        let theme = EditorTheme::default()
+            .base(transparent)
+            .status_line(
+                EditorStatusLine::default()
+                    .style_mode(transparent.fg(Color::Green).add_modifier(Modifier::BOLD))
+                    .style_line(transparent.fg(Color::DarkGray))
+                    .style_search(transparent.fg(Color::Yellow)),
+            )
+            .block(block);
+        let syntax_highlighter = SyntaxHighlighter::new("kronuz", "sql").ok();
+
+        let view = EditorView::new(&mut self.state)
+            .theme(theme)
+            .syntax_highlighter(syntax_highlighter);
+        frame.render_widget(view, area);
+    }
 }
 
 impl Component for QueryEditor {
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
     fn handle_key(&mut self, key: KeyEvent) -> Option<Job> {
         if let KeyCode::Char('j') = key.code {
             self.last_j = Some(Instant::now());
@@ -92,24 +107,5 @@ impl Component for QueryEditor {
         self.events.on_key_event(key, &mut self.state);
 
         None
-    }
-
-    fn render(&mut self, frame: &mut Frame, area: Rect, block: Block) {
-        let transparent = Style::default().bg(Color::Reset).fg(Color::Reset);
-        let theme = EditorTheme::default()
-            .base(transparent)
-            .status_line(
-                EditorStatusLine::default()
-                    .style_mode(transparent.fg(Color::Green).add_modifier(Modifier::BOLD))
-                    .style_line(transparent.fg(Color::DarkGray))
-                    .style_search(transparent.fg(Color::Yellow)),
-            )
-            .block(block);
-        let syntax_highlighter = SyntaxHighlighter::new("kronuz", "sql").ok();
-
-        let view = EditorView::new(&mut self.state)
-            .theme(theme)
-            .syntax_highlighter(syntax_highlighter);
-        frame.render_widget(view, area);
     }
 }
