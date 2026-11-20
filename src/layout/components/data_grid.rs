@@ -3,18 +3,19 @@ use ratatui::{
     Frame,
     layout::{Constraint, Rect},
     style::{Color, Style, Stylize},
-    widgets::Block,
+    widgets::{Block, Paragraph, Wrap},
 };
 use ratatui_table::{Cell, Row, Table, TableState};
 
 use crate::{
-    database::GridCell,
+    database::{GridCell, QueryStatus},
     keymap::Keymap,
     layout::{Action, Command, components::Component},
 };
 
 pub struct DataGrid {
     state: TableState,
+    status: Option<QueryStatus>,
     keymap: Keymap,
     row_count: usize,
     rendered_width: u16,
@@ -25,6 +26,7 @@ impl DataGrid {
     pub fn new(keymap: Keymap) -> Self {
         Self {
             state: TableState::default(),
+            status: None,
             keymap: keymap,
             row_count: 0,
             rendered_width: 0,
@@ -44,6 +46,28 @@ impl DataGrid {
         self.rendered_height = block.inner(area).height;
         self.row_count = items.len();
 
+        match &self.status {
+            Some(QueryStatus::ConnectionError(message) | QueryStatus::QueryError(message)) => {
+                let paragraph = Paragraph::new(message.as_str())
+                    .fg(Color::Red)
+                    .wrap(Wrap { trim: true })
+                    .block(block);
+                frame.render_widget(paragraph, area);
+
+                return;
+            }
+            Some(QueryStatus::Loading) => {
+                let paragraph = Paragraph::new("Loading...")
+                    .fg(Color::DarkGray)
+                    .wrap(Wrap { trim: true })
+                    .block(block);
+                frame.render_widget(paragraph, area);
+
+                return;
+            }
+            None => (),
+        }
+
         let widths = vec![Constraint::Length(20); header.len()];
         let table = Table::lazy_rows(items.len(), &widths, |i| build_row(items, i))
             .widths(widths)
@@ -54,6 +78,10 @@ impl DataGrid {
             .block(block);
 
         frame.render_stateful_widget(table, area, &mut self.state);
+    }
+
+    pub fn set_status(&mut self, status: Option<QueryStatus>) {
+        self.status = status;
     }
 }
 
@@ -90,6 +118,12 @@ impl Component for DataGrid {
                 self.state.select(Some(offset.max(0) as usize));
                 None
             }
+            Some(Command::Copy) => match &self.status {
+                Some(QueryStatus::ConnectionError(message)) => Some(Action::Copy(message.clone())),
+                Some(QueryStatus::QueryError(message)) => Some(Action::Copy(message.clone())),
+                Some(QueryStatus::Loading) => None,
+                None => None,
+            },
             _ => None,
         }
     }

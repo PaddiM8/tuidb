@@ -37,6 +37,9 @@ pub enum Command {
     HalfPageDown,
     HalfPageUp,
 
+    // Clipboard
+    Copy,
+
     // Dialogs
     CloseDialog,
     FindConnection,
@@ -53,6 +56,7 @@ pub struct QueryOptions {
 pub enum Action {
     // Global
     Quit,
+    Copy(String),
 
     // Main
     OpenConnection(String),

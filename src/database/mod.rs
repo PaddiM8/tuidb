@@ -2,6 +2,12 @@ use crate::{config::BackendDetails, database::sqlite::SqliteConnection, layout::
 
 pub mod sqlite;
 
+pub enum QueryStatus {
+    Loading,
+    ConnectionError(String),
+    QueryError(String),
+}
+
 #[derive(Debug, Clone)]
 pub struct QueryResult {
     pub header: Vec<String>,

@@ -46,6 +46,7 @@ impl Keymap {
             ((None, Char('k')), Command::Up),
             ((None, Char('l')), Command::Right),
             ((None, Char('j')), Command::Down),
+            ((None, Char('y')), Command::Copy),
             ((None, KeyCode::Enter), Command::Submit),
             ((CTRL, Char('u')), Command::HalfPageUp),
             ((CTRL, Char('d')), Command::HalfPageDown),

@@ -1,3 +1,8 @@
+use std::{
+    ops::Add,
+    time::{Duration, Instant},
+};
+
 use crossterm::event::KeyEvent;
 use ratatui::{
     Frame,
@@ -8,7 +13,7 @@ use ratatui::{
 
 use crate::{
     config::ConnectionEntry,
-    database::{GridCell, QueryResult},
+    database::{GridCell, QueryResult, QueryStatus},
     keymap::Keymap,
     layout::{
         Action, Command, View,
@@ -29,19 +34,21 @@ enum MainPane {
     Grid,
 }
 
+struct StatusMessage(String, Instant);
+
 pub struct MainView {
     tables: Vec<String>,
     active_table_name: Option<String>,
     last_active_table_name: Option<String>,
     table_header: Vec<String>,
     table_rows: Vec<Vec<GridCell>>,
-    connection_error_status: Option<String>,
     sidebar: Sidebar,
     query_editor: QueryEditor,
     filter_bar: FilterBar,
     grid: DataGrid,
     keymap: Keymap,
     active: MainPane,
+    status_message: Option<StatusMessage>,
     is_fullscreen: bool,
 }
 
@@ -58,19 +65,26 @@ impl MainView {
             tables: Vec::new(),
             table_header: Vec::new(),
             table_rows: Vec::new(),
-            connection_error_status: None,
             sidebar: sidebar,
             query_editor: query_editor,
             filter_bar: filter_bar,
             grid: grid,
             keymap: Keymap::default_global(),
             active: MainPane::Query,
+            status_message: None,
             is_fullscreen: false,
         }
     }
 
     pub fn query_editor_mut(&mut self) -> &mut QueryEditor {
         &mut self.query_editor
+    }
+
+    pub fn set_status_message(&mut self, message: String) {
+        self.status_message = Some(StatusMessage(
+            message,
+            Instant::now().add(Duration::from_secs(5)),
+        ));
     }
 
     fn handle_key_in_component(&mut self, event: KeyEvent) -> Option<Action> {
@@ -107,8 +121,8 @@ impl MainView {
         self.table_rows = result.rows;
     }
 
-    pub fn set_connection_error(&mut self, message: Option<String>) {
-        self.connection_error_status = message;
+    pub fn set_query_status(&mut self, status: Option<QueryStatus>) {
+        self.grid.set_status(status);
     }
 
     pub fn set_tables(&mut self, tables: Vec<String>) {
@@ -137,8 +151,16 @@ impl MainView {
         self.render_pane(MainPane::Grid, frame, grid_area);
         self.render_pane(MainPane::Query, frame, editor_area);
 
-        let connection_name = Paragraph::new::<&str>(connection.name.as_ref());
-        frame.render_widget(connection_name, status_bar_area);
+        let status = if let Some(status_message) = &self.status_message
+            && Instant::now() <= status_message.1
+        {
+            &format!("{} | {}", connection.name, status_message.0)
+        } else {
+            &connection.name
+        };
+
+        let status = Paragraph::new::<&str>(status);
+        frame.render_widget(status, status_bar_area);
     }
 
     fn is_full_editor(&self) -> bool {

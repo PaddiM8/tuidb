@@ -1,5 +1,10 @@
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    ops::Add,
+    time::{Duration, Instant},
+};
 
+use arboard::Clipboard;
 use crossterm::event::KeyEvent;
 use ratatui::{
     Frame,
@@ -10,7 +15,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
     config::Config,
-    database::DatabaseConnection,
+    database::{DatabaseConnection, QueryStatus},
     keymap::Keymap,
     layout::{
         Action, Command, DbEvent, QueryOptions, View,
@@ -41,6 +46,7 @@ pub struct App {
     config: Config,
     action_tx: UnboundedSender<Action>,
     keymap: Keymap,
+    clipboard: Option<Clipboard>,
     active_view: ActiveView,
     active_dialog: ActiveDialog,
     main_views: HashMap<ConnectionKey, MainView>,
@@ -57,6 +63,7 @@ impl App {
             config: config,
             action_tx: action_tx,
             keymap: Keymap::default_global(),
+            clipboard: Clipboard::new().ok(),
             main_views: HashMap::new(),
             connections: HashMap::new(),
             active_main_view_key: None,
@@ -135,6 +142,15 @@ impl App {
 
     pub fn handle_action(&mut self, action: Action) {
         match action {
+            Action::Copy(text) => {
+                if let Some(clipboard) = &mut self.clipboard {
+                    if clipboard.set_text(text).is_ok() {
+                        self.set_status_message(String::from("Copied to clipboard"));
+                    } else {
+                        self.set_status_message(String::from("Failed to copy to clipboard"));
+                    }
+                }
+            }
             Action::CloseDialog => self.set_dialog(ActiveDialog::None),
             Action::OpenConnectionsDialog => {
                 self.connections_dialog.reset();
@@ -204,6 +220,10 @@ impl App {
                     return;
                 };
 
+                if let Some(main_view) = self.main_views.get_mut(&connection_key) {
+                    main_view.set_query_status(Some(QueryStatus::Loading));
+                };
+
                 let Some(connection) = self.connections.get(&connection_key).cloned() else {
                     return;
                 };
@@ -227,6 +247,8 @@ impl App {
                 let Some(main_view) = self.main_views.get_mut(&connection_key) else {
                     return;
                 };
+
+                main_view.set_query_status(Some(QueryStatus::Loading));
 
                 let Some(table_name) = main_view.table_name().cloned() else {
                     return;
@@ -261,7 +283,7 @@ impl App {
                 self.connections
                     .insert(connection_key.clone(), connection.clone());
 
-                main_view.set_connection_error(None);
+                main_view.set_query_status(None);
 
                 let tx = self.action_tx.clone();
                 tokio::spawn(async move {
@@ -270,13 +292,17 @@ impl App {
                     }
                 });
             }
-            DbEvent::ConnectionFailed(message) => main_view.set_connection_error(Some(message)),
+            DbEvent::ConnectionFailed(message) => {
+                main_view.set_query_status(Some(QueryStatus::ConnectionError(message)))
+            }
             DbEvent::Tables(tables) => main_view.set_tables(tables),
             DbEvent::Queried(query_result) => {
-                main_view.set_connection_error(None);
+                main_view.set_query_status(None);
                 main_view.load_result(query_result);
             }
-            DbEvent::QueryFailed(message) => main_view.set_connection_error(Some(message)),
+            DbEvent::QueryFailed(message) => {
+                main_view.set_query_status(Some(QueryStatus::QueryError(message)))
+            }
         }
     }
 
@@ -294,6 +320,12 @@ impl App {
 
     fn set_dialog(&mut self, dialog: ActiveDialog) {
         self.active_dialog = dialog;
+    }
+
+    fn set_status_message(&mut self, message: String) {
+        if let Some(main_view) = self.active_main_view_mut() {
+            main_view.set_status_message(message);
+        }
     }
 }
 
