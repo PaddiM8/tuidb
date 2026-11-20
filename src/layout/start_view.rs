@@ -1,10 +1,7 @@
 use crossterm::event::KeyEvent;
-use ratatui::{
-    Frame,
-    widgets::{Block, Clear},
-};
+use ratatui::{Frame, widgets::Clear};
 
-use crate::layout::{Job, View};
+use crate::layout::{Action, View};
 
 pub struct StartView {}
 
@@ -21,7 +18,7 @@ impl StartView {
 }
 
 impl View for StartView {
-    fn handle_key(&mut self, _: KeyEvent) -> Option<Job> {
+    fn handle_key(&mut self, _: KeyEvent) -> Option<Action> {
         None
     }
 }

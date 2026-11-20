@@ -6,7 +6,7 @@ use nucleo_matcher::{
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
-    style::{Color, Modifier, Style, Stylize},
+    style::{Color, Modifier, Style},
     text::ToText,
     widgets::{Block, Borders, Clear, List, ListState, Paragraph},
 };
@@ -14,7 +14,7 @@ use tui_input::{Input, backend::crossterm::EventHandler};
 
 use crate::{
     keymap::Keymap,
-    layout::{Action, Job, components::Component, dialogs::build_dialog_job},
+    layout::{Action, Command, components::Component, dialogs::build_dialog_action},
 };
 
 pub struct FindDialog {
@@ -24,6 +24,7 @@ pub struct FindDialog {
     input: Input,
     state: ListState,
     filtered_indices: Vec<usize>,
+    selected_value: Option<String>,
 }
 
 impl FindDialog {
@@ -38,6 +39,7 @@ impl FindDialog {
             input: Input::new(String::new()),
             state: state,
             filtered_indices: Vec::new(),
+            selected_value: None,
         }
     }
 
@@ -47,12 +49,8 @@ impl FindDialog {
         self.filtered_indices.clear();
     }
 
-    pub fn selected(&self) -> Option<usize> {
-        if let Some(index) = self.state.selected() {
-            self.filtered_indices.get(index).copied()
-        } else {
-            None
-        }
+    pub fn selected_value(&self) -> Option<&str> {
+        self.selected_value.as_deref()
     }
 
     pub fn render(&mut self, frame: &mut Frame, area: Rect, block: Block, items: &Vec<&str>) {
@@ -95,6 +93,7 @@ impl FindDialog {
             Normalization::Smart,
         );
 
+        // Filter/fuzzy search using nucleo
         let mut buffer = Vec::new();
         let mut scored: Vec<(usize, u32)> = items
             .iter()
@@ -108,11 +107,18 @@ impl FindDialog {
 
         // Sort by the score
         scored.sort_by(|a, b| b.1.cmp(&a.1));
-        self.filtered_indices = scored.iter().map(|(index, _)| index.to_owned()).collect();
 
-        if let None = self.selected() {
+        if let None = self.selected_value() {
             self.state.select_first();
         }
+
+        self.filtered_indices = scored.iter().map(|(index, _)| index.to_owned()).collect();
+        self.selected_value = self
+            .state
+            .selected()
+            .and_then(|row| self.filtered_indices.get(row))
+            .and_then(|&index| items.get(index))
+            .map(|x| x.to_string());
 
         let mut results = Vec::new();
         for index in &self.filtered_indices {
@@ -121,22 +127,24 @@ impl FindDialog {
 
         let list = List::new(results)
             .block(Block::new())
-            .highlight_style(Style::new().reversed());
+            .highlight_style(Style::new().on_dark_gray());
         frame.render_stateful_widget(list, list_area, &mut self.state);
     }
 }
 
 impl Component for FindDialog {
-    fn handle_key(&mut self, event: KeyEvent) -> Option<Job> {
+    type Output = Action;
+
+    fn handle_key(&mut self, event: KeyEvent) -> Option<Action> {
         if let Some(action) = self.keymap.resolve_event(event) {
-            let base_job = build_dialog_job(&action);
-            if base_job.is_some() {
-                return base_job;
+            let base_action = build_dialog_action(&action);
+            if base_action.is_some() {
+                return base_action;
             }
 
             match action {
-                Action::Up => self.state.select_previous(),
-                Action::Down => self.state.select_next(),
+                Command::Up => self.state.select_previous(),
+                Command::Down => self.state.select_next(),
                 _ => (),
             }
 

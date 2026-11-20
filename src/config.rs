@@ -43,6 +43,7 @@ pub enum BackendDetails {
 #[derive(Clone, Debug, Deserialize)]
 pub struct SqliteConnectionDetails {
     pub path: String,
+    pub is_readonly: Option<bool>,
 }
 
 #[derive(Clone, Debug, Deserialize)]

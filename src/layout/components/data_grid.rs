@@ -1,121 +1,53 @@
-use std::any::Any;
-
 use crossterm::event::KeyEvent;
 use ratatui::{
     Frame,
     layout::{Constraint, Rect},
-    style::{Style, Stylize},
+    style::{Color, Style, Stylize},
     widgets::Block,
 };
 use ratatui_table::{Cell, Row, Table, TableState};
 
 use crate::{
+    database::GridCell,
     keymap::Keymap,
-    layout::{Action, Job, components::Component},
+    layout::{Action, Command, components::Component},
 };
 
 pub struct DataGrid {
-    header: Vec<String>,
-    items: Vec<Vec<String>>,
     state: TableState,
     keymap: Keymap,
+    row_count: usize,
     rendered_width: u16,
     rendered_height: u16,
 }
 
 impl DataGrid {
-    pub fn new(header: Vec<String>, keymap: Keymap) -> Self {
+    pub fn new(keymap: Keymap) -> Self {
         Self {
-            header: header,
-            items: vec![
-                vec![
-                    String::from("a1"),
-                    String::from("a2"),
-                    String::from("a3"),
-                    String::from("a4"),
-                ],
-                vec![
-                    String::from("b1"),
-                    String::from("b2"),
-                    String::from("b3"),
-                    String::from("b4"),
-                ],
-                vec![
-                    String::from("c1"),
-                    String::from("c2"),
-                    String::from("c3"),
-                    String::from("c4"),
-                ],
-                vec![
-                    String::from("d1"),
-                    String::from("d2"),
-                    String::from("d3"),
-                    String::from("d4"),
-                ],
-                vec![
-                    String::from("e1"),
-                    String::from("e2"),
-                    String::from("e3"),
-                    String::from("e4"),
-                ],
-                vec![
-                    String::from("f1"),
-                    String::from("f2"),
-                    String::from("f3"),
-                    String::from("f4"),
-                ],
-                vec![
-                    String::from("g1"),
-                    String::from("g2"),
-                    String::from("g3"),
-                    String::from("g4"),
-                ],
-                vec![
-                    String::from("h1"),
-                    String::from("h2"),
-                    String::from("h3"),
-                    String::from("h4"),
-                ],
-                vec![
-                    String::from("i1"),
-                    String::from("i2"),
-                    String::from("i3"),
-                    String::from("i4"),
-                ],
-                vec![
-                    String::from("j1"),
-                    String::from("j2"),
-                    String::from("j3"),
-                    String::from("j4"),
-                ],
-                vec![
-                    String::from("k1"),
-                    String::from("k2"),
-                    String::from("k3"),
-                    String::from("k4"),
-                ],
-            ],
             state: TableState::default(),
             keymap: keymap,
+            row_count: 0,
             rendered_width: 0,
             rendered_height: 0,
         }
     }
 
-    pub fn render(&mut self, frame: &mut Frame, area: Rect, block: Block) {
-        let widths = [
-            Constraint::Length(8),
-            Constraint::Length(8),
-            Constraint::Length(8),
-            Constraint::Length(8),
-        ];
-
+    pub fn render(
+        &mut self,
+        frame: &mut Frame,
+        area: Rect,
+        block: Block,
+        header: &Vec<String>,
+        items: &Vec<Vec<GridCell>>,
+    ) {
         self.rendered_width = block.inner(area).width;
         self.rendered_height = block.inner(area).height;
+        self.row_count = items.len();
 
-        let table = Table::lazy_rows(self.items.len(), widths, |i| build_row(&self.items, i))
+        let widths = vec![Constraint::Length(20); header.len()];
+        let table = Table::lazy_rows(items.len(), &widths, |i| build_row(items, i))
             .widths(widths)
-            .header(Row::new(self.header.clone()).bold())
+            .header(Row::new(header.clone()).bold())
             .row_highlight_style(Style::new().on_dark_gray())
             .column_highlight_style(Style::new().on_dark_gray())
             .cell_highlight_style(Style::new().reversed())
@@ -126,31 +58,33 @@ impl DataGrid {
 }
 
 impl Component for DataGrid {
-    fn handle_key(&mut self, event: KeyEvent) -> Option<Job> {
+    type Output = Action;
+
+    fn handle_key(&mut self, event: KeyEvent) -> Option<Action> {
         match self.keymap.resolve_event(event) {
-            Some(Action::Left) => {
+            Some(Command::Left) => {
                 self.state.select_previous_column();
                 None
             }
-            Some(Action::Down) => {
+            Some(Command::Down) => {
                 self.state.select_next();
                 None
             }
-            Some(Action::Right) => {
+            Some(Command::Right) => {
                 self.state.select_next_column();
                 None
             }
-            Some(Action::Up) => {
+            Some(Command::Up) => {
                 self.state.select_previous();
                 None
             }
-            Some(Action::HalfPageDown) => {
+            Some(Command::HalfPageDown) => {
                 let offset = self.state.selected().unwrap_or(0) as u16 + self.rendered_height / 2;
                 self.state
-                    .select(Some((offset as usize).min(self.items.len())));
+                    .select(Some((offset as usize).min(self.row_count)));
                 None
             }
-            Some(Action::HalfPageUp) => {
+            Some(Command::HalfPageUp) => {
                 let offset =
                     self.state.selected().unwrap_or(0) as i32 - self.rendered_height as i32 / 2;
                 self.state.select(Some(offset.max(0) as usize));
@@ -161,6 +95,35 @@ impl Component for DataGrid {
     }
 }
 
-fn build_row(items: &Vec<Vec<String>>, index: usize) -> Row<'_> {
-    Row::new(items[index].iter().map(|c| Cell::from(c.as_str())))
+fn build_row(items: &Vec<Vec<GridCell>>, index: usize) -> Row<'_> {
+    Row::new(items[index].iter().map(|c| build_cell(c)))
+}
+
+fn build_cell<'a>(cell: &'a GridCell) -> Cell<'a> {
+    match cell {
+        GridCell::Error(message) => Cell::from(message.as_str()).fg(Color::Red),
+        GridCell::Null => Cell::from("null").fg(Color::Gray),
+        GridCell::String(value) => Cell::from(value.as_str()),
+        GridCell::Bool(value) => {
+            if *value {
+                Cell::from("true")
+            } else {
+                Cell::from("false")
+            }
+        }
+        GridCell::Integer(value) => Cell::from(value.to_string()),
+        GridCell::Float(value) => Cell::from(value.to_string()),
+        GridCell::BigNumber(value) => Cell::from(value.as_str()),
+        GridCell::Bytes(bytes) => {
+            const MAX: usize = 64;
+            let hex: String = bytes.iter().take(MAX).map(|b| format!("{b:02x}")).collect();
+            let formatted = if bytes.len() > MAX {
+                format!("0x{}... ({} B)", hex, bytes.len())
+            } else {
+                format!("0x{}", hex)
+            };
+
+            Cell::from(formatted)
+        }
+    }
 }

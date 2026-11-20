@@ -4,7 +4,7 @@ use ratatui::{Frame, layout::Rect, widgets::Block};
 use crate::{
     config::ConnectionEntry,
     keymap::Keymap,
-    layout::{Action, Job, components::Component, dialogs::find_dialog::FindDialog},
+    layout::{Action, Command, components::Component, dialogs::find_dialog::FindDialog},
 };
 
 pub struct ConnectionsDialog {
@@ -38,11 +38,13 @@ impl ConnectionsDialog {
 }
 
 impl Component for ConnectionsDialog {
-    fn handle_key(&mut self, event: KeyEvent) -> Option<Job> {
-        if let Some(Action::Submit) = self.keymap.resolve_event(event)
-            && let Some(connection_id) = self.base_dialog.selected()
+    type Output = Action;
+
+    fn handle_key(&mut self, event: KeyEvent) -> Option<Action> {
+        if let Some(Command::Submit) = self.keymap.resolve_event(event)
+            && let Some(connection_name) = self.base_dialog.selected_value()
         {
-            return Some(Job::OpenConnection(connection_id));
+            return Some(Action::OpenConnection(connection_name.to_string()));
         }
 
         self.base_dialog.handle_key(event)

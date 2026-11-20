@@ -1,42 +1,76 @@
 use color_eyre::eyre::{ContextCompat, Result};
-use crossterm::event::{self, Event, KeyEventKind};
+use crossterm::{
+    event::{
+        Event, EventStream, KeyEventKind, KeyboardEnhancementFlags, PopKeyboardEnhancementFlags,
+        PushKeyboardEnhancementFlags,
+    },
+    execute,
+    terminal::supports_keyboard_enhancement,
+};
+use futures::StreamExt;
 use ratatui::DefaultTerminal;
+use tokio::sync::mpsc;
 
-use crate::{app::App, config::Config};
+use crate::{app::App, config::Config, layout::Action};
 mod app;
 mod config;
+mod database;
 mod keymap;
 mod layout;
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     color_eyre::install()?;
-    ratatui::run(run)?;
-    Ok(())
+    let mut terminal = ratatui::init();
+    let result = run(&mut terminal).await;
+    ratatui::restore();
+
+    result
 }
 
-fn run(terminal: &mut DefaultTerminal) -> Result<()> {
+async fn run(terminal: &mut DefaultTerminal) -> Result<()> {
     let path = dirs::config_dir()
         .context("could not determine config directory")?
         .join("tuidb")
         .join("config.toml");
+
     let config = Config::load_from_path(&path)?;
-    let mut app = App::new(config);
+    let (tx, mut rx) = mpsc::unbounded_channel::<Action>();
+    let mut app = App::new(config, tx.clone());
+    let mut reader = EventStream::new();
+
+    let enhanced = supports_keyboard_enhancement().unwrap_or(false);
+    if enhanced {
+        execute!(
+            std::io::stdout(),
+            PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+        )?;
+    }
 
     while !app.should_quit {
         terminal.draw(|frame| app.render(frame))?;
 
-        match event::read()? {
-            Event::Key(key) if key.kind == KeyEventKind::Press => {
-                app.handle_key(key);
+        tokio::select! {
+            Some(Ok(ev)) = reader.next() => {
+                if let Event::Key(key) = ev && key.kind == KeyEventKind::Press {
+                    app.handle_key(key);
+                }
             }
-            _ => {}
+            Some(ev) = rx.recv() => app.handle_action(ev),
+            else => break,
         }
 
         if let Some(query_editor) = app.query_editor_mut()
             && query_editor.is_system_editor_pending()
         {
+            drop(reader);
             query_editor.open_system_editor(terminal)?;
+            reader = EventStream::new();
         }
+    }
+
+    if enhanced {
+        let _ = execute!(std::io::stdout(), PopKeyboardEnhancementFlags);
     }
 
     Ok(())

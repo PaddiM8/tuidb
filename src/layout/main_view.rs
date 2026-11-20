@@ -8,24 +8,37 @@ use ratatui::{
 
 use crate::{
     config::ConnectionEntry,
+    database::{GridCell, QueryResult},
     keymap::Keymap,
     layout::{
-        Action, Job, View,
-        components::{Component, data_grid::DataGrid, query_editor::QueryEditor, sidebar::Sidebar},
+        Action, Command, View,
+        components::{
+            Component,
+            data_grid::DataGrid,
+            filter_bar::FilterBar,
+            query_editor::QueryEditor,
+            sidebar::{Sidebar, SidebarEvent},
+        },
     },
 };
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 enum MainPane {
     Sidebar,
-    QueryEditor,
+    Query,
     Grid,
 }
 
 pub struct MainView {
-    pub should_quit: bool,
+    tables: Vec<String>,
+    active_table_name: Option<String>,
+    last_active_table_name: Option<String>,
+    table_header: Vec<String>,
+    table_rows: Vec<Vec<GridCell>>,
+    connection_error_status: Option<String>,
     sidebar: Sidebar,
     query_editor: QueryEditor,
+    filter_bar: FilterBar,
     grid: DataGrid,
     keymap: Keymap,
     active: MainPane,
@@ -34,20 +47,24 @@ pub struct MainView {
 
 impl MainView {
     pub fn new() -> Self {
-        let sidebar = Sidebar::new(vec![], Keymap::default_selection());
-        let query_editor = QueryEditor::new();
-        let grid = DataGrid::new(
-            vec![String::from("test1"), String::from("test2")],
-            Keymap::default_selection(),
-        );
+        let sidebar = Sidebar::new(Keymap::default_selection());
+        let query_editor = QueryEditor::new(Keymap::default_global());
+        let filter_bar = FilterBar::new();
+        let grid = DataGrid::new(Keymap::default_selection());
 
         Self {
-            should_quit: false,
+            active_table_name: None,
+            last_active_table_name: None,
+            tables: Vec::new(),
+            table_header: Vec::new(),
+            table_rows: Vec::new(),
+            connection_error_status: None,
             sidebar: sidebar,
             query_editor: query_editor,
+            filter_bar: filter_bar,
             grid: grid,
             keymap: Keymap::default_global(),
-            active: MainPane::QueryEditor,
+            active: MainPane::Query,
             is_fullscreen: false,
         }
     }
@@ -56,39 +73,46 @@ impl MainView {
         &mut self.query_editor
     }
 
-    fn handle_key_in_component(&mut self, event: KeyEvent) -> Option<Job> {
-        let job = match self.active {
-            MainPane::Sidebar => self.sidebar.handle_key(event),
-            MainPane::QueryEditor => self.query_editor.handle_key(event),
+    fn handle_key_in_component(&mut self, event: KeyEvent) -> Option<Action> {
+        match self.active {
+            MainPane::Sidebar => match self.sidebar.handle_key(event) {
+                Some(SidebarEvent::SubmittedIndex(index)) => {
+                    self.active = MainPane::Query;
+                    self.tables.get(index).cloned().map(Action::OpenTable)
+                }
+                None => None,
+            },
+            MainPane::Query => {
+                if self.is_full_editor() {
+                    self.query_editor.handle_key(event)
+                } else {
+                    self.filter_bar.handle_key(event)
+                }
+            }
             MainPane::Grid => self.grid.handle_key(event),
-        };
-
-        if let Some(job) = job {
-            self.try_handle_job_globally(&job);
-            return None;
         }
-
-        job
     }
 
-    fn try_handle_job_globally(&mut self, job: &Job) -> bool {
-        if let Job::Quit = job {
-            self.should_quit = true;
-        } else if let Job::ToggleFullscreen = job {
-            self.is_fullscreen = !self.is_fullscreen;
-        } else if let Job::FocusLeft = job {
-            self.active = MainPane::Sidebar;
-        } else if let Job::FocusUp = job {
-            self.active = MainPane::QueryEditor;
-        } else if let Job::FocusRight = job {
-            self.active = MainPane::QueryEditor;
-        } else if let Job::FocusDown = job {
-            self.active = MainPane::QueryEditor;
-        } else {
-            return false;
-        }
+    pub fn table_name(&self) -> Option<&String> {
+        self.active_table_name.as_ref()
+    }
 
-        true
+    pub fn set_table_name(&mut self, table_name: String) {
+        self.active_table_name = Some(table_name.clone());
+        self.last_active_table_name = Some(table_name);
+    }
+
+    pub fn load_result(&mut self, result: QueryResult) {
+        self.table_header = result.header;
+        self.table_rows = result.rows;
+    }
+
+    pub fn set_connection_error(&mut self, message: Option<String>) {
+        self.connection_error_status = message;
+    }
+
+    pub fn set_tables(&mut self, tables: Vec<String>) {
+        self.tables = tables;
     }
 
     pub fn render(&mut self, frame: &mut Frame, connection: &ConnectionEntry) {
@@ -103,30 +127,60 @@ impl MainView {
         let [sidebar_area, main_area] =
             Layout::horizontal([Constraint::Length(24), Constraint::Fill(1)]).areas(content_area);
 
+        let show_full_editor = self.is_full_editor();
+        let editor_area_height = if show_full_editor { 12 } else { 3 };
         let [editor_area, grid_area] =
-            Layout::vertical([Constraint::Length(12), Constraint::Fill(1)]).areas(main_area);
+            Layout::vertical([Constraint::Length(editor_area_height), Constraint::Fill(1)])
+                .areas(main_area);
 
         self.render_pane(MainPane::Sidebar, frame, sidebar_area);
-        self.render_pane(MainPane::QueryEditor, frame, editor_area);
         self.render_pane(MainPane::Grid, frame, grid_area);
+        self.render_pane(MainPane::Query, frame, editor_area);
 
         let connection_name = Paragraph::new::<&str>(connection.name.as_ref());
         frame.render_widget(connection_name, status_bar_area);
+    }
+
+    fn is_full_editor(&self) -> bool {
+        self.active_table_name.is_none()
     }
 
     fn render_pane(&mut self, pane: MainPane, frame: &mut Frame, area: Rect) {
         match pane {
             MainPane::Sidebar => {
                 let sidebar_block = self.get_block_for_id("Tables", MainPane::Sidebar);
-                self.sidebar.render(frame, area, sidebar_block);
+                self.sidebar
+                    .render(frame, area, sidebar_block, &self.tables);
             }
-            MainPane::QueryEditor => {
-                let editor_block = self.get_block_for_id("Query", MainPane::QueryEditor);
-                self.query_editor.render(frame, area, editor_block);
+            MainPane::Query => {
+                if self.is_full_editor() {
+                    let editor_block = self.get_block_for_id("Query", MainPane::Query);
+                    self.query_editor.render(frame, area, editor_block);
+                } else {
+                    let filter_block = self.get_block_for_id("Filter", MainPane::Query);
+                    self.filter_bar.render(
+                        frame,
+                        area,
+                        filter_block,
+                        self.active == MainPane::Query,
+                    );
+                }
             }
             MainPane::Grid => {
-                let grid_block = self.get_block_for_id("Result", MainPane::Grid);
-                self.grid.render(frame, area, grid_block);
+                let title = if let Some(table_name) = &self.active_table_name {
+                    format!("Rows ({})", table_name)
+                } else {
+                    String::from("Rows")
+                };
+
+                let grid_block = self.get_block_for_id(&title, MainPane::Grid);
+                self.grid.render(
+                    frame,
+                    area,
+                    grid_block,
+                    &self.table_header,
+                    &self.table_rows,
+                );
             }
         }
     }
@@ -143,27 +197,36 @@ impl MainView {
 }
 
 impl View for MainView {
-    fn handle_key(&mut self, event: KeyEvent) -> Option<Job> {
-        let action = self.keymap.resolve_event(event);
-        if action.is_none() {
-            return self.handle_key_in_component(event);
+    fn handle_key(&mut self, event: KeyEvent) -> Option<Action> {
+        let command = self.keymap.resolve_event(event);
+        if let Some(Command::Quit) = command {
+            return Some(Action::Quit);
         }
 
-        let action = action.unwrap();
-        if let Some(built_job) = build_job(action) {
-            if self.try_handle_job_globally(&built_job) {
-                return None;
-            } else {
-                return Some(built_job);
+        match command {
+            Some(Command::ToggleFullscreen) => self.is_fullscreen = !self.is_fullscreen,
+            Some(Command::ToggleQueryMode) => {
+                if self.active_table_name.is_none() {
+                    self.active_table_name = self
+                        .last_active_table_name
+                        .clone()
+                        .or(self.tables.first().cloned());
+                } else {
+                    self.active_table_name = None;
+                    self.sidebar.deselect();
+                    self.active = MainPane::Query;
+                }
             }
+            Some(Command::FocusLeft) => {
+                self.sidebar.focus();
+                self.active = MainPane::Sidebar;
+            }
+            Some(Command::FocusUp) => self.active = MainPane::Query,
+            Some(Command::FocusRight) => self.active = MainPane::Query,
+            Some(Command::FocusDown) => self.active = MainPane::Grid,
+            _ => return self.handle_key_in_component(event),
         }
 
-        return self.handle_key_in_component(event);
-    }
-}
-
-fn build_job(action: Action) -> Option<Job> {
-    match action {
-        _ => None,
+        None
     }
 }

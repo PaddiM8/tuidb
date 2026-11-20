@@ -1,4 +1,3 @@
-use std::any::Any;
 use std::time::{Duration, Instant};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -17,17 +16,19 @@ use ratatui::{
     widgets::Block,
 };
 
-use crate::layout::Job;
+use crate::keymap::Keymap;
 use crate::layout::components::Component;
+use crate::layout::{Action, Command};
 
 pub struct QueryEditor {
     pub state: EditorState,
     pub events: EditorEventHandler,
+    keymap: Keymap,
     last_j: Option<Instant>,
 }
 
 impl QueryEditor {
-    pub fn new() -> Self {
+    pub fn new(keymap: Keymap) -> Self {
         let mut editor_state = EditorState::default();
         editor_state.mode = edtui::EditorMode::Insert;
 
@@ -41,6 +42,7 @@ impl QueryEditor {
         Self {
             state: editor_state,
             events: event_handler,
+            keymap: keymap,
             last_j: None,
         }
     }
@@ -78,12 +80,14 @@ impl QueryEditor {
 }
 
 impl Component for QueryEditor {
-    fn handle_key(&mut self, key: KeyEvent) -> Option<Job> {
-        if let KeyCode::Char('j') = key.code {
+    type Output = Action;
+
+    fn handle_key(&mut self, event: KeyEvent) -> Option<Action> {
+        if let KeyCode::Char('j') = event.code {
             self.last_j = Some(Instant::now());
         }
 
-        if let KeyCode::Char('k') = key.code
+        if let KeyCode::Char('k') = event.code
             && let Some(t) = self.last_j
             && t.elapsed() < Duration::from_millis(300)
         {
@@ -93,18 +97,16 @@ impl Component for QueryEditor {
             self.last_j = None;
         }
 
-        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Enter {
-            let job: Option<Job> = match key.code {
-                KeyCode::Enter => Some(Job::RunQuery(self.text())),
-                _ => None,
-            };
+        let action = match self.keymap.resolve_event(event) {
+            Some(Command::RunQuery) => Some(Action::RunRawQuery(self.text())),
+            _ => None,
+        };
 
-            if job.is_some() {
-                return job;
-            }
+        if action.is_some() {
+            return action;
         }
 
-        self.events.on_key_event(key, &mut self.state);
+        self.events.on_key_event(event, &mut self.state);
 
         None
     }

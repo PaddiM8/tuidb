@@ -5,33 +5,34 @@ use crossterm::event::{
     KeyEvent, KeyModifiers,
 };
 
-use crate::layout::Action;
+use crate::layout::Command;
 
 type KeyCombo = (Option<KeyModifiers>, KeyCode);
 
 #[derive(Clone)]
 pub struct Keymap {
-    keybinds: HashMap<KeyCombo, Action>,
+    keybinds: HashMap<KeyCombo, Command>,
 }
 
 impl Keymap {
-    pub fn new() -> Self {
-        Self {
-            keybinds: HashMap::new(),
-        }
-    }
-
     pub fn default_global() -> Self {
         const CTRL: Option<KeyModifiers> = Some(KeyModifiers::CONTROL);
 
         let keybinds = HashMap::from([
-            ((None, Char('q')), Action::Quit),
-            ((CTRL, Char('f')), Action::FindConnection),
-            ((CTRL, Char('o')), Action::ToggleFullscreen),
-            ((CTRL, Char('h')), Action::FocusLeft),
-            ((CTRL, Char('k')), Action::FocusUp),
-            ((CTRL, Char('l')), Action::FocusRight),
-            ((CTRL, Char('j')), Action::FocusDown),
+            ((CTRL, Char('q')), Command::Quit),
+            ((CTRL, Char('f')), Command::FindConnection),
+            ((CTRL, Char('o')), Command::ToggleFullscreen),
+            ((CTRL, Char('h')), Command::FocusLeft),
+            ((CTRL, Char('k')), Command::FocusUp),
+            ((CTRL, Char('l')), Command::FocusRight),
+            ((CTRL, Char('j')), Command::FocusDown),
+            ((CTRL, Char('n')), Command::ToggleQueryMode),
+            ((CTRL, KeyCode::Left), Command::FocusLeft),
+            ((CTRL, KeyCode::Up), Command::FocusUp),
+            ((CTRL, KeyCode::Right), Command::FocusRight),
+            ((CTRL, KeyCode::Down), Command::FocusDown),
+            ((None, KeyCode::F(5)), Command::RunQuery),
+            ((CTRL, KeyCode::Enter), Command::RunQuery),
         ]);
 
         Self { keybinds }
@@ -41,12 +42,13 @@ impl Keymap {
         const CTRL: Option<KeyModifiers> = Some(KeyModifiers::CONTROL);
 
         let keybinds = HashMap::from([
-            ((None, Char('h')), Action::Left),
-            ((None, Char('k')), Action::Up),
-            ((None, Char('l')), Action::Right),
-            ((None, Char('j')), Action::Down),
-            ((CTRL, Char('u')), Action::HalfPageUp),
-            ((CTRL, Char('d')), Action::HalfPageDown),
+            ((None, Char('h')), Command::Left),
+            ((None, Char('k')), Command::Up),
+            ((None, Char('l')), Command::Right),
+            ((None, Char('j')), Command::Down),
+            ((None, KeyCode::Enter), Command::Submit),
+            ((CTRL, Char('u')), Command::HalfPageUp),
+            ((CTRL, Char('d')), Command::HalfPageDown),
         ]);
 
         Self { keybinds }
@@ -56,9 +58,9 @@ impl Keymap {
         const CTRL: Option<KeyModifiers> = Some(KeyModifiers::CONTROL);
 
         let keybinds = HashMap::from([
-            ((None, KeyCode::Esc), Action::CloseDialog),
-            ((None, KeyCode::Enter), Action::Submit),
-            ((CTRL, Char('c')), Action::CloseDialog),
+            ((None, KeyCode::Esc), Command::CloseDialog),
+            ((None, KeyCode::Enter), Command::Submit),
+            ((CTRL, Char('c')), Command::CloseDialog),
         ]);
 
         Self { keybinds }
@@ -69,18 +71,18 @@ impl Keymap {
 
         let mut base = Keymap::default_dialog();
         base.keybinds
-            .insert((CTRL, Char('e')), Action::EditSelectedConnection);
+            .insert((CTRL, Char('e')), Command::EditSelectedConnection);
         base.keybinds
-            .insert((CTRL, Char('d')), Action::NewConnection);
-        base.keybinds.insert((None, KeyCode::Up), Action::Up);
-        base.keybinds.insert((None, KeyCode::Down), Action::Down);
-        base.keybinds.insert((CTRL, Char('p')), Action::Up);
-        base.keybinds.insert((CTRL, Char('n')), Action::Down);
+            .insert((CTRL, Char('d')), Command::NewConnection);
+        base.keybinds.insert((None, KeyCode::Up), Command::Up);
+        base.keybinds.insert((None, KeyCode::Down), Command::Down);
+        base.keybinds.insert((CTRL, Char('p')), Command::Up);
+        base.keybinds.insert((CTRL, Char('n')), Command::Down);
 
         base
     }
 
-    pub fn resolve_event(&self, event: KeyEvent) -> Option<Action> {
+    pub fn resolve_event(&self, event: KeyEvent) -> Option<Command> {
         let modifier = if event.modifiers.is_empty() {
             None
         } else {

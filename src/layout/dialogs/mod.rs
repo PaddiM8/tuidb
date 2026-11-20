@@ -1,6 +1,6 @@
 use ratatui::layout::{Constraint, Layout, Rect};
 
-use crate::layout::{Action, Job};
+use crate::layout::{Action, Command};
 
 pub mod connections_dialog;
 pub mod find_dialog;
@@ -23,10 +23,10 @@ fn centered(area: Rect, w: u16, h: u16) -> Rect {
     c
 }
 
-fn build_dialog_job(action: &Action) -> Option<Job> {
+fn build_dialog_action(action: &Command) -> Option<Action> {
     match action {
-        Action::Submit => Some(Job::CloseDialog),
-        Action::CloseDialog => Some(Job::CloseDialog),
+        Command::Submit => Some(Action::CloseDialog),
+        Command::CloseDialog => Some(Action::CloseDialog),
         _ => None,
     }
 }
