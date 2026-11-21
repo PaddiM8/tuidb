@@ -97,6 +97,7 @@ impl MainView {
             MainPane::Sidebar => match self.sidebar.handle_key(event) {
                 Some(SidebarEvent::SubmittedIndex(index)) => {
                     self.active = MainPane::Grid;
+                    self.grid.clear_selection();
                     self.tables.get(index).cloned().map(Action::OpenTable)
                 }
                 None => None,
@@ -122,7 +123,6 @@ impl MainView {
     }
 
     pub fn load_result(&mut self, result: QueryResult) {
-        self.grid.clear_selection();
         self.table_header = result.header;
         self.table_rows = result.rows;
     }

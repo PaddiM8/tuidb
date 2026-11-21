@@ -1,6 +1,8 @@
 use crate::{
     config::SqliteConnectionDetails,
-    database::{Backend, DatabaseSchemaRow, GridCell, QueryOptions, QueryResult, SchemaResult},
+    database::{
+        Backend, DatabaseSchemaRow, GridCell, QueryOptions, QueryResult, QuerySorting, SchemaResult,
+    },
 };
 
 use sqlx::{
@@ -63,22 +65,32 @@ impl Backend for SqliteConnection {
         table_name: &str,
         options: &QueryOptions,
     ) -> Result<QueryResult, std::string::String> {
-        let filter = if let Some(filter) = &options.filter {
-            format!("WHERE {}", filter)
-        } else {
-            String::new()
+        let mut query_str = format!("SELECT * FROM {}", enquote(table_name));
+
+        // Filter
+        if let Some(filter) = &options.filter {
+            query_str.push_str("WHERE ");
+            query_str.push_str(filter);
         };
 
-        let mut result = self
-            .query_raw(
-                format!(
-                    "SELECT * FROM {} {} LIMIT 1000",
-                    enquote(table_name),
-                    filter
-                )
-                .as_ref(),
-            )
-            .await?;
+        // Sorting
+        match &options.sorting {
+            Some(QuerySorting::Ascending(column_name)) => {
+                query_str.push_str(&format!("ORDER BY {} ASC", column_name))
+            }
+            Some(QuerySorting::Descending(column_name)) => {
+                query_str.push_str(&format!("ORDER BY {} DESC", column_name))
+            }
+            None => (),
+        }
+
+        // Limit
+        query_str.push_str(" LIMIT 1000");
+
+        // Execute
+        let mut result = self.query_raw(query_str.as_ref()).await?;
+
+        // Column names
         if result.header.len() == 0 {
             let columns: Vec<String> =
                 sqlx::query_scalar("SELECT name FROM pragma_table_info(?) ORDER BY cid")
