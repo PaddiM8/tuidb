@@ -1,11 +1,10 @@
 use crate::{
     config::SqliteConnectionDetails,
-    database::{Backend, DatabaseSchemaRow, GridCell, QueryResult, SchemaResult},
-    layout::QueryOptions,
+    database::{Backend, DatabaseSchemaRow, GridCell, QueryOptions, QueryResult, SchemaResult},
 };
 
 use sqlx::{
-    AssertSqlSafe, Column, Pool, Row, SqlSafeStr, Sqlite, TypeInfo, ValueRef,
+    AssertSqlSafe, Column, Pool, Row, Sqlite, TypeInfo, ValueRef,
     sqlite::{SqliteConnectOptions, SqlitePoolOptions, SqliteRow},
 };
 

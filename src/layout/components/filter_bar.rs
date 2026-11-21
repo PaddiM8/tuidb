@@ -7,8 +7,8 @@ use ratatui::widgets::{Block, Paragraph};
 use tui_input::Input;
 use tui_input::backend::crossterm::EventHandler;
 
+use crate::layout::Action;
 use crate::layout::components::Component;
-use crate::layout::{Action, QueryOptions};
 
 pub struct FilterBar {
     pub state: Input,
@@ -50,7 +50,7 @@ impl FilterBar {
 
         let x = self.state.visual_cursor().max(scroll) - scroll;
 
-        if (is_focused) {
+        if is_focused {
             frame.set_cursor_position((input_area.x + x as u16, input_area.y));
         }
     }
@@ -61,11 +61,7 @@ impl Component for FilterBar {
 
     fn handle_key(&mut self, event: KeyEvent) -> Option<Action> {
         if event.code == KeyCode::Enter {
-            let options = QueryOptions {
-                filter: Some(self.text()),
-            };
-
-            return Some(Action::RunQuery(options));
+            return Some(Action::Filter(self.text()));
         }
 
         self.state.handle_event(&Event::Key(event));

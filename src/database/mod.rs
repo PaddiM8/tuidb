@@ -1,4 +1,4 @@
-use crate::{config::BackendDetails, database::sqlite::SqliteConnection, layout::QueryOptions};
+use crate::{config::BackendDetails, database::sqlite::SqliteConnection};
 
 pub mod sqlite;
 
@@ -6,6 +6,18 @@ pub enum QueryStatus {
     Loading,
     ConnectionError(String),
     QueryError(String),
+}
+
+#[derive(Clone, Debug)]
+pub struct QueryOptions {
+    pub filter: Option<String>,
+    pub sorting: Option<QuerySorting>,
+}
+
+#[derive(Clone, Debug)]
+pub enum QuerySorting {
+    Ascending(String),
+    Descending(String),
 }
 
 #[derive(Debug, Clone)]

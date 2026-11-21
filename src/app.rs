@@ -1,8 +1,4 @@
-use std::{
-    collections::HashMap,
-    ops::Add,
-    time::{Duration, Instant},
-};
+use std::collections::HashMap;
 
 use arboard::Clipboard;
 use crossterm::event::KeyEvent;
@@ -15,10 +11,10 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
     config::Config,
-    database::{DatabaseConnection, QueryStatus},
+    database::{DatabaseConnection, QueryOptions, QueryStatus},
     keymap::Keymap,
     layout::{
-        Action, Command, DbEvent, QueryOptions, View,
+        Action, Command, DbEvent, View,
         components::{Component, query_editor::QueryEditor},
         dialogs::connections_dialog::ConnectionsDialog,
         main_view::MainView,
@@ -205,7 +201,10 @@ impl App {
                 let tx = self.action_tx.clone();
                 let connection_key = connection_key.clone();
                 tokio::spawn(async move {
-                    let options = QueryOptions { filter: None };
+                    let options = QueryOptions {
+                        filter: None,
+                        sorting: None,
+                    };
 
                     let action = match connection.query(&table_name, &options).await {
                         Ok(result) => Action::Db(connection_key, DbEvent::Queried(result)),
@@ -239,7 +238,7 @@ impl App {
                     let _ = tx.send(action);
                 });
             }
-            Action::RunQuery(options) => {
+            Action::Filter(filter) => {
                 let Some(connection_key) = self.active_main_view_key.as_ref() else {
                     return;
                 };
@@ -249,6 +248,7 @@ impl App {
                 };
 
                 main_view.set_query_status(Some(QueryStatus::Loading));
+                main_view.set_filter(Some(filter));
 
                 let Some(table_name) = main_view.table_name().cloned() else {
                     return;
@@ -260,6 +260,7 @@ impl App {
 
                 let tx = self.action_tx.clone();
                 let connection_key = connection_key.clone();
+                let options = main_view.query_options().clone();
                 tokio::spawn(async move {
                     let action = match connection.query(table_name.as_str(), &options).await {
                         Ok(result) => Action::Db(connection_key, DbEvent::Queried(result)),
@@ -269,7 +270,38 @@ impl App {
                     let _ = tx.send(action);
                 });
             }
-            Action::OpenEditConnectionDialog(_) => todo!(),
+            Action::Sort(sorting) => {
+                let Some(connection_key) = self.active_main_view_key.as_ref() else {
+                    return;
+                };
+
+                let Some(main_view) = self.main_views.get_mut(&connection_key) else {
+                    return;
+                };
+
+                main_view.set_query_status(Some(QueryStatus::Loading));
+                main_view.set_sorting(sorting);
+
+                let Some(table_name) = main_view.table_name().cloned() else {
+                    return;
+                };
+
+                let Some(connection) = self.connections.get(&connection_key).cloned() else {
+                    return;
+                };
+
+                let tx = self.action_tx.clone();
+                let connection_key = connection_key.clone();
+                let options = main_view.query_options().clone();
+                tokio::spawn(async move {
+                    let action = match connection.query(table_name.as_str(), &options).await {
+                        Ok(result) => Action::Db(connection_key, DbEvent::Queried(result)),
+                        Err(message) => Action::Db(connection_key, DbEvent::QueryFailed(message)),
+                    };
+
+                    let _ = tx.send(action);
+                });
+            }
         }
     }
 

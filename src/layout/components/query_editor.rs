@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent};
 use edtui::SyntaxHighlighter;
 use edtui::actions::Action::DeleteWordBackward;
 use edtui::events::{KeyEventHandler, KeyEventRegister, KeyInput};

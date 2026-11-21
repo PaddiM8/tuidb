@@ -13,7 +13,7 @@ use ratatui::{
 
 use crate::{
     config::ConnectionEntry,
-    database::{GridCell, QueryResult, QueryStatus},
+    database::{GridCell, QueryOptions, QueryResult, QuerySorting, QueryStatus},
     keymap::Keymap,
     layout::{
         Action, Command, View,
@@ -42,6 +42,7 @@ pub struct MainView {
     last_active_table_name: Option<String>,
     table_header: Vec<String>,
     table_rows: Vec<Vec<GridCell>>,
+    query_options: QueryOptions,
     sidebar: Sidebar,
     query_editor: QueryEditor,
     filter_bar: FilterBar,
@@ -65,6 +66,10 @@ impl MainView {
             tables: Vec::new(),
             table_header: Vec::new(),
             table_rows: Vec::new(),
+            query_options: QueryOptions {
+                filter: None,
+                sorting: None,
+            },
             sidebar: sidebar,
             query_editor: query_editor,
             filter_bar: filter_bar,
@@ -91,7 +96,7 @@ impl MainView {
         match self.active {
             MainPane::Sidebar => match self.sidebar.handle_key(event) {
                 Some(SidebarEvent::SubmittedIndex(index)) => {
-                    self.active = MainPane::Query;
+                    self.active = MainPane::Grid;
                     self.tables.get(index).cloned().map(Action::OpenTable)
                 }
                 None => None,
@@ -117,6 +122,7 @@ impl MainView {
     }
 
     pub fn load_result(&mut self, result: QueryResult) {
+        self.grid.clear_selection();
         self.table_header = result.header;
         self.table_rows = result.rows;
     }
@@ -127,6 +133,18 @@ impl MainView {
 
     pub fn set_tables(&mut self, tables: Vec<String>) {
         self.tables = tables;
+    }
+
+    pub fn query_options(&self) -> &QueryOptions {
+        &self.query_options
+    }
+
+    pub fn set_filter(&mut self, filter: Option<String>) {
+        self.query_options.filter = filter;
+    }
+
+    pub fn set_sorting(&mut self, sorting: Option<QuerySorting>) {
+        self.query_options.sorting = sorting;
     }
 
     pub fn render(&mut self, frame: &mut Frame, connection: &ConnectionEntry) {

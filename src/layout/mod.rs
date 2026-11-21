@@ -2,7 +2,7 @@ use crossterm::event::KeyEvent;
 
 use crate::{
     app::ConnectionKey,
-    database::{DatabaseConnection, QueryResult},
+    database::{DatabaseConnection, QueryResult, QuerySorting},
 };
 
 pub mod components;
@@ -37,7 +37,8 @@ pub enum Command {
     HalfPageDown,
     HalfPageUp,
 
-    // Clipboard
+    // Data
+    Sort,
     Copy,
 
     // Dialogs
@@ -45,11 +46,6 @@ pub enum Command {
     FindConnection,
     EditSelectedConnection,
     NewConnection,
-}
-
-#[derive(Clone, Debug)]
-pub struct QueryOptions {
-    pub filter: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -62,13 +58,13 @@ pub enum Action {
     OpenConnection(String),
     OpenTable(String),
     RunRawQuery(String),
-    RunQuery(QueryOptions),
+    Filter(String),
+    Sort(Option<QuerySorting>),
     Db(ConnectionKey, DbEvent),
 
     // Dialogs
     CloseDialog,
     OpenConnectionsDialog,
-    OpenEditConnectionDialog(Option<String>),
 }
 
 #[derive(Clone, Debug)]
