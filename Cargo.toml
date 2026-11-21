@@ -19,6 +19,7 @@ ratatui = { version = "0.30.2", features = ["unstable-widget-ref"] }
 ratatui-table = "0.2.0"
 serde = { version = "1.0.229", features = ["derive"] }
 sqlx = { version = "0.9.0", features = ["sqlite", "postgres", "mysql", "runtime-tokio"] }
+thousands = "0.2.0"
 tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "sync"] }
 toml = "1.2.1"
 tui-input = "0.15.5"

@@ -11,6 +11,7 @@ use ratatui::{
     style::{Color, Style, Stylize},
     widgets::{Block, Paragraph},
 };
+use thousands::Separable;
 
 use crate::{
     config::ConnectionEntry,
@@ -43,6 +44,7 @@ pub struct MainView {
     last_active_table_name: Option<String>,
     table_header: Vec<String>,
     table_rows: Vec<Vec<GridCell>>,
+    reported_row_count: Option<usize>,
     query_options: QueryOptions,
     sidebar: Sidebar,
     query_editor: QueryEditor,
@@ -58,7 +60,7 @@ impl MainView {
     pub fn new() -> Self {
         let sidebar = Sidebar::new(Keymap::default_selection());
         let query_editor = QueryEditor::new(Keymap::default_global());
-        let filter_bar = FilterBar::new();
+        let filter_bar = FilterBar::new(Keymap::default_global());
         let grid = DataGrid::new(Keymap::default_selection());
 
         Self {
@@ -67,6 +69,7 @@ impl MainView {
             tables: Vec::new(),
             table_header: Vec::new(),
             table_rows: Vec::new(),
+            reported_row_count: None,
             query_options: QueryOptions {
                 filter: None,
                 sorting: None,
@@ -126,6 +129,7 @@ impl MainView {
     pub fn load_result(&mut self, result: QueryResult) {
         self.table_header = result.header;
         self.table_rows = result.rows;
+        self.reported_row_count = Some(result.row_count);
     }
 
     pub fn set_query_status(&mut self, status: Option<QueryStatus>) {
@@ -170,21 +174,31 @@ impl MainView {
         self.render_pane(MainPane::Grid, frame, grid_area);
         self.render_pane(MainPane::Query, frame, editor_area);
 
-        // Status bar
-        let [mode_area, connection_area, status_area] = Layout::horizontal([
+        self.render_status_bar(status_bar_area, frame, &connection.name);
+    }
+
+    fn render_status_bar(&self, status_bar_area: Rect, frame: &mut Frame, connection_name: &str) {
+        let row_count_text = if let Some(row_count) = self.reported_row_count {
+            format!("{} rows", row_count.separate_with_spaces())
+        } else {
+            String::new()
+        };
+
+        let [mode_area, connection_area, status_area, row_count_area] = Layout::horizontal([
             Constraint::Length(8),
-            Constraint::Length(connection.name.len().max(32) as u16),
+            Constraint::Max(connection_name.len().min(32) as u16),
             Constraint::Fill(1),
+            Constraint::Max(row_count_text.len().min(32) as u16),
         ])
         .spacing(1)
         .areas(status_bar_area);
 
+        // Mode
         let mode = if self.is_full_editor() {
             self.query_editor.mode()
         } else {
             self.filter_bar.mode()
         };
-
         let mode_widget = match mode {
             EditorMode::Normal => Paragraph::new::<&str>(" NORMAL ").bg(Color::Cyan),
             EditorMode::Insert => Paragraph::new::<&str>(" INSERT ").bg(Color::Green),
@@ -193,19 +207,21 @@ impl MainView {
         };
         frame.render_widget(mode_widget, mode_area);
 
-        let connection_widget = Paragraph::new::<&str>(&connection.name);
+        // Connection
+        let connection_widget = Paragraph::new::<&str>(connection_name);
         frame.render_widget(connection_widget, connection_area);
 
+        // Status
         if let Some(status_message) = &self.status_message
             && Instant::now() <= status_message.1
         {
             let status = Paragraph::new::<&str>(status_message.0.as_str());
             frame.render_widget(status, status_area);
         };
-    }
 
-    fn is_full_editor(&self) -> bool {
-        self.active_table_name.is_none()
+        // Row count
+        let row_count_widget = Paragraph::new::<&str>(&row_count_text).right_aligned();
+        frame.render_widget(row_count_widget, row_count_area);
     }
 
     fn render_pane(&mut self, pane: MainPane, frame: &mut Frame, area: Rect) {
@@ -241,6 +257,10 @@ impl MainView {
                 );
             }
         }
+    }
+
+    fn is_full_editor(&self) -> bool {
+        self.active_table_name.is_none()
     }
 
     fn get_block_for_id<'a>(&self, title: &'a str, pane: MainPane) -> Block<'a> {

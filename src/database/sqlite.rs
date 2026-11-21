@@ -46,6 +46,7 @@ impl Backend for SqliteConnection {
         };
 
         let mut mapped_rows: Vec<Vec<GridCell>> = Vec::new();
+        let row_count = sqlite_rows.len();
         for sqlite_row in sqlite_rows {
             let mut mapped_row = Vec::new();
             for i in 0..sqlite_row.len() {
@@ -57,20 +58,21 @@ impl Backend for SqliteConnection {
             mapped_rows.push(mapped_row)
         }
 
-        Ok(QueryResult::new(columns, mapped_rows))
+        Ok(QueryResult::new(columns, mapped_rows, row_count))
     }
 
-    async fn query(
-        &self,
-        table_name: &str,
-        options: &QueryOptions,
-    ) -> Result<QueryResult, std::string::String> {
+    async fn query(&self, table_name: &str, options: &QueryOptions) -> Result<QueryResult, String> {
+        let mut count_query_str = format!("SELECT COUNT(*) FROM {}", enquote(table_name));
         let mut query_str = format!("SELECT * FROM {}", enquote(table_name));
 
         // Filter
-        if let Some(filter) = &options.filter {
+        if let Some(filter) = &options.filter
+            && filter.trim().len() > 0
+        {
             query_str.push_str("WHERE ");
             query_str.push_str(filter);
+            count_query_str.push_str("WHERE ");
+            count_query_str.push_str(filter);
         };
 
         // Sorting
@@ -100,6 +102,12 @@ impl Backend for SqliteConnection {
                     .map_err(|e| e.to_string())?;
             result.header = columns;
         }
+
+        let count_row: i64 = sqlx::query_scalar(AssertSqlSafe(count_query_str))
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| e.to_string())?;
+        result.row_count = count_row as usize;
 
         Ok(result)
     }

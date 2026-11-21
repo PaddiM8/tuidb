@@ -4,26 +4,26 @@ use crossterm::event::{KeyCode, KeyEvent};
 use edtui::actions::Action::{DeleteChar, DeleteWordBackward};
 use edtui::events::{KeyEventHandler, KeyEventRegister, KeyInput};
 use edtui::{
-    EditorEventHandler, EditorMode, EditorState, EditorStatusLine, EditorTheme, EditorView,
-    SyntaxHighlighter,
+    EditorEventHandler, EditorMode, EditorState, EditorTheme, EditorView, SyntaxHighlighter,
 };
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style, Stylize};
-use ratatui::text::ToText;
+use ratatui::style::{Color, Style, Stylize};
 use ratatui::widgets::{Block, Paragraph};
 
-use crate::layout::Action;
+use crate::keymap::Keymap;
 use crate::layout::components::Component;
+use crate::layout::{Action, Command};
 
 pub struct FilterBar {
+    keymap: Keymap,
     state: EditorState,
     events: EditorEventHandler,
     last_j: Option<Instant>,
 }
 
 impl FilterBar {
-    pub fn new() -> Self {
+    pub fn new(keymap: Keymap) -> Self {
         let mut editor_state = EditorState::default();
         editor_state.mode = edtui::EditorMode::Insert;
 
@@ -35,6 +35,7 @@ impl FilterBar {
         let event_handler = EditorEventHandler::new(key_handler);
 
         Self {
+            keymap: keymap,
             state: editor_state,
             events: event_handler,
             last_j: None,
@@ -97,6 +98,15 @@ impl Component for FilterBar {
 
         if event.code == KeyCode::Enter {
             return Some(Action::Filter(self.text()));
+        }
+
+        let action = match self.keymap.resolve_event(event) {
+            Some(Command::RunQuery) => Some(Action::Filter(self.text())),
+            _ => None,
+        };
+
+        if action.is_some() {
+            return action;
         }
 
         self.events.on_key_event(event, &mut self.state);

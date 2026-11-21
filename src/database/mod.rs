@@ -24,11 +24,16 @@ pub enum QuerySorting {
 pub struct QueryResult {
     pub header: Vec<String>,
     pub rows: Vec<Vec<GridCell>>,
+    pub row_count: usize,
 }
 
 impl QueryResult {
-    pub fn new(header: Vec<String>, rows: Vec<Vec<GridCell>>) -> Self {
-        Self { header, rows }
+    pub fn new(header: Vec<String>, rows: Vec<Vec<GridCell>>, row_count: usize) -> Self {
+        Self {
+            header,
+            rows,
+            row_count,
+        }
     }
 }
 
