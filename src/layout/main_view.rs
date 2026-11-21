@@ -4,10 +4,11 @@ use std::{
 };
 
 use crossterm::event::KeyEvent;
+use edtui::EditorMode;
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
-    style::Style,
+    style::{Color, Style, Stylize},
     widgets::{Block, Paragraph},
 };
 
@@ -169,16 +170,38 @@ impl MainView {
         self.render_pane(MainPane::Grid, frame, grid_area);
         self.render_pane(MainPane::Query, frame, editor_area);
 
-        let status = if let Some(status_message) = &self.status_message
-            && Instant::now() <= status_message.1
-        {
-            &format!("{} | {}", connection.name, status_message.0)
+        // Status bar
+        let [mode_area, connection_area, status_area] = Layout::horizontal([
+            Constraint::Length(8),
+            Constraint::Length(connection.name.len().max(32) as u16),
+            Constraint::Fill(1),
+        ])
+        .spacing(1)
+        .areas(status_bar_area);
+
+        let mode = if self.is_full_editor() {
+            self.query_editor.mode()
         } else {
-            &connection.name
+            self.filter_bar.mode()
         };
 
-        let status = Paragraph::new::<&str>(status);
-        frame.render_widget(status, status_bar_area);
+        let mode_widget = match mode {
+            EditorMode::Normal => Paragraph::new::<&str>(" NORMAL ").bg(Color::Cyan),
+            EditorMode::Insert => Paragraph::new::<&str>(" INSERT ").bg(Color::Green),
+            EditorMode::Visual => Paragraph::new::<&str>(" VISUAL ").bg(Color::Red),
+            EditorMode::Search => Paragraph::new::<&str>(" SEARCH ").bg(Color::Yellow),
+        };
+        frame.render_widget(mode_widget, mode_area);
+
+        let connection_widget = Paragraph::new::<&str>(&connection.name);
+        frame.render_widget(connection_widget, connection_area);
+
+        if let Some(status_message) = &self.status_message
+            && Instant::now() <= status_message.1
+        {
+            let status = Paragraph::new::<&str>(status_message.0.as_str());
+            frame.render_widget(status, status_area);
+        };
     }
 
     fn is_full_editor(&self) -> bool {
@@ -198,12 +221,7 @@ impl MainView {
                     self.query_editor.render(frame, area, editor_block);
                 } else {
                     let filter_block = self.get_block_for_id("Filter", MainPane::Query);
-                    self.filter_bar.render(
-                        frame,
-                        area,
-                        filter_block,
-                        self.active == MainPane::Query,
-                    );
+                    self.filter_bar.render(frame, area, filter_block);
                 }
             }
             MainPane::Grid => {

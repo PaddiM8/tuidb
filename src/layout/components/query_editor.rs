@@ -1,13 +1,13 @@
 use std::time::{Duration, Instant};
 
 use crossterm::event::{KeyCode, KeyEvent};
-use edtui::SyntaxHighlighter;
 use edtui::actions::Action::DeleteWordBackward;
 use edtui::events::{KeyEventHandler, KeyEventRegister, KeyInput};
 use edtui::{
     EditorEventHandler, EditorState, EditorStatusLine, EditorTheme, EditorView,
     actions::Action::DeleteChar,
 };
+use edtui::{EditorMode, SyntaxHighlighter};
 use ratatui::DefaultTerminal;
 use ratatui::{
     Frame,
@@ -21,8 +21,8 @@ use crate::layout::components::Component;
 use crate::layout::{Action, Command};
 
 pub struct QueryEditor {
-    pub state: EditorState,
-    pub events: EditorEventHandler,
+    state: EditorState,
+    events: EditorEventHandler,
     keymap: Keymap,
     last_j: Option<Instant>,
 }
@@ -47,6 +47,10 @@ impl QueryEditor {
         }
     }
 
+    pub fn mode(&self) -> EditorMode {
+        self.state.mode
+    }
+
     pub fn text(&self) -> String {
         self.state.lines.to_string()
     }
@@ -63,12 +67,7 @@ impl QueryEditor {
         let transparent = Style::default().bg(Color::Reset).fg(Color::Reset);
         let theme = EditorTheme::default()
             .base(transparent)
-            .status_line(
-                EditorStatusLine::default()
-                    .style_mode(transparent.fg(Color::Green).add_modifier(Modifier::BOLD))
-                    .style_line(transparent.fg(Color::DarkGray))
-                    .style_search(transparent.fg(Color::Yellow)),
-            )
+            .hide_status_line()
             .block(block);
         let syntax_highlighter = SyntaxHighlighter::new("kronuz", "sql").ok();
 
