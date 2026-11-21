@@ -61,9 +61,6 @@ impl DataGrid {
     ) {
         self.rendered_width = block.inner(area).width;
         self.rendered_height = block.inner(area).height;
-        self.selected_column_name = header
-            .get(self.state.selected_column().unwrap_or(0))
-            .cloned();
         self.total_column_count = header.len();
         self.row_count = items.len();
 
@@ -90,11 +87,16 @@ impl DataGrid {
         }
 
         const COLUMN_WIDTH: u16 = 20;
-        let mut columns_to_show = area.width as f32 / (COLUMN_WIDTH + 1) as f32;
-        let mut edge_column_width = (COLUMN_WIDTH as f32 * columns_to_show.fract()) as u16;
+        let inner_width = block.inner(area).width;
+        let mut columns_to_show = inner_width / (COLUMN_WIDTH + 1);
+        let mut edge_column_width = inner_width % (COLUMN_WIDTH + 1);
 
-        if columns_to_show.ceil() as usize > header.len() {
-            columns_to_show = header.len() as f32;
+        if edge_column_width > 1 {
+            columns_to_show += 1;
+        }
+
+        if columns_to_show as usize > header.len() {
+            columns_to_show = header.len() as u16;
             edge_column_width = COLUMN_WIDTH;
         }
 
@@ -103,8 +105,8 @@ impl DataGrid {
             self.horizontal_scroll = header.len().saturating_sub(columns_to_show as usize);
         }
 
-        self.visible_column_count = columns_to_show.ceil() as usize;
-        if header.len().saturating_sub(self.horizontal_scroll) < columns_to_show.ceil() as usize {
+        self.visible_column_count = columns_to_show as usize;
+        if header.len().saturating_sub(self.horizontal_scroll) < columns_to_show as usize {
             self.visible_column_count = header.len().saturating_sub(self.horizontal_scroll);
             edge_column_width = COLUMN_WIDTH;
         }
@@ -158,6 +160,10 @@ impl DataGrid {
         .block(block);
 
         frame.render_stateful_widget(table, area, &mut self.state);
+
+        self.selected_column_name = header
+            .get(self.horizontal_scroll + self.state.selected_column().unwrap_or(0))
+            .cloned();
     }
 
     pub fn set_status(&mut self, status: Option<QueryStatus>) {
@@ -288,12 +294,12 @@ fn build_header_cell<'a>(
     is_cut_off_to_left: bool,
 ) -> Cell<'a> {
     let arrow = match sorting {
-        Some(QuerySorting::Ascending(column_name)) if column_name == name => "▲",
-        Some(QuerySorting::Descending(column_name)) if column_name == name => "▼",
+        Some(QuerySorting::Ascending(column_name)) if column_name == name => " ▲",
+        Some(QuerySorting::Descending(column_name)) if column_name == name => " ▼",
         _ => return build_aligned_cell(name, width, is_cut_off_to_left),
     };
 
-    let width = width as usize;
+    let width = width.saturating_sub(2) as usize;
     let name: String = name.chars().take(width).collect();
     let formatted = format!("{name:<width$}{arrow}");
 

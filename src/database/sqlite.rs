@@ -76,10 +76,10 @@ impl Backend for SqliteConnection {
         // Sorting
         match &options.sorting {
             Some(QuerySorting::Ascending(column_name)) => {
-                query_str.push_str(&format!("ORDER BY {} ASC", column_name))
+                query_str.push_str(&format!("ORDER BY {} ASC", enquote(column_name)))
             }
             Some(QuerySorting::Descending(column_name)) => {
-                query_str.push_str(&format!("ORDER BY {} DESC", column_name))
+                query_str.push_str(&format!("ORDER BY {} DESC", enquote(column_name)))
             }
             None => (),
         }
