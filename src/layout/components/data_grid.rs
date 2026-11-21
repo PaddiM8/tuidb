@@ -3,7 +3,7 @@ use ratatui::{
     Frame,
     layout::{Constraint, Rect},
     style::{Color, Style, Stylize},
-    text::{Line, Text},
+    text::Text,
     widgets::{Block, Paragraph, Wrap},
 };
 use ratatui_table::{Cell, Row, Table, TableState};
@@ -109,7 +109,7 @@ impl DataGrid {
             edge_column_width = COLUMN_WIDTH;
         }
 
-        let mut widths = vec![Constraint::Length(COLUMN_WIDTH); self.visible_column_count];
+        let mut widths = vec![COLUMN_WIDTH; self.visible_column_count];
 
         // If the leftover space is not visible, remove the column meant for it.
         // If the last visible column is selected, truncate the first column.
@@ -121,10 +121,10 @@ impl DataGrid {
         } else if let Some(selected_column) = self.state.selected_column()
             && selected_column == self.visible_column_count.saturating_sub(1)
         {
-            widths[0] = Constraint::Length(edge_column_width);
+            widths[0] = edge_column_width;
             right_align_first_column = true;
         } else if self.visible_column_count > 0 {
-            widths[self.visible_column_count - 1] = Constraint::Length(edge_column_width);
+            widths[self.visible_column_count - 1] = edge_column_width;
         }
 
         let header_cells = header
@@ -136,20 +136,21 @@ impl DataGrid {
                 build_header_cell(
                     c,
                     &self.sorting,
-                    COLUMN_WIDTH as usize,
+                    widths[i],
                     right_align_first_column && i == 0,
                 )
             });
-        let table = Table::lazy_rows(items.len(), &widths, |i| {
+        let constraints = widths.iter().map(|w| Constraint::Length(*w));
+        let table = Table::lazy_rows(items.len(), constraints, |i| {
             build_row(
                 items,
                 i,
                 self.horizontal_scroll,
                 self.visible_column_count,
+                widths.as_slice(),
                 right_align_first_column,
             )
         })
-        .widths(widths)
         .header(Row::new(header_cells).bold())
         .row_highlight_style(Style::new().on_dark_gray())
         .column_highlight_style(Style::new().on_dark_gray())
@@ -262,19 +263,20 @@ impl Component for DataGrid {
     }
 }
 
-fn build_row(
-    items: &Vec<Vec<GridCell>>,
+fn build_row<'a>(
+    items: &'a Vec<Vec<GridCell>>,
     index: usize,
     horizontal_scroll: usize,
     column_count: usize,
+    widths: &'a [u16],
     right_align_first_column: bool,
-) -> Row<'_> {
+) -> Row<'a> {
     let cells = items[index]
         .iter()
         .skip(horizontal_scroll)
         .take(column_count)
         .enumerate()
-        .map(|(i, c)| build_cell(c, right_align_first_column && i == 0));
+        .map(|(i, c)| build_cell(c, widths[i], right_align_first_column && i == 0));
 
     Row::new(cells)
 }
@@ -282,38 +284,41 @@ fn build_row(
 fn build_header_cell<'a>(
     name: &'a str,
     sorting: &Option<QuerySorting>,
-    width: usize,
-    right_align: bool,
+    width: u16,
+    is_cut_off_to_left: bool,
 ) -> Cell<'a> {
     let arrow = match sorting {
         Some(QuerySorting::Ascending(column_name)) if column_name == name => "▲",
         Some(QuerySorting::Descending(column_name)) if column_name == name => "▼",
-        _ => return build_aligned_cell(name, right_align),
+        _ => return build_aligned_cell(name, width, is_cut_off_to_left),
     };
 
+    let width = width as usize;
     let name: String = name.chars().take(width).collect();
     let formatted = format!("{name:<width$}{arrow}");
 
-    build_aligned_cell(formatted, right_align)
+    build_aligned_cell(&formatted, width as u16, is_cut_off_to_left)
 }
 
-fn build_cell<'a>(cell: &'a GridCell, right_align: bool) -> Cell<'a> {
+fn build_cell<'a>(cell: &'a GridCell, width: u16, is_cut_off_to_left: bool) -> Cell<'a> {
     match cell {
         GridCell::Error(message) => {
-            build_aligned_cell(message.as_str(), right_align).fg(Color::Red)
+            build_aligned_cell(message.as_str(), width, is_cut_off_to_left).fg(Color::Red)
         }
-        GridCell::Null => build_aligned_cell("null", right_align).fg(Color::Gray),
-        GridCell::String(value) => build_aligned_cell(value.as_str(), right_align),
+        GridCell::Null => build_aligned_cell("null", width, is_cut_off_to_left).fg(Color::Gray),
+        GridCell::String(value) => build_aligned_cell(value.as_str(), width, is_cut_off_to_left),
         GridCell::Bool(value) => {
             if *value {
-                build_aligned_cell("true", right_align)
+                build_aligned_cell("true", width, is_cut_off_to_left)
             } else {
-                build_aligned_cell("false", right_align)
+                build_aligned_cell("false", width, is_cut_off_to_left)
             }
         }
-        GridCell::Integer(value) => build_aligned_cell(value.to_string(), right_align),
-        GridCell::Float(value) => build_aligned_cell(value.to_string(), right_align),
-        GridCell::BigNumber(value) => build_aligned_cell(value.as_str(), right_align),
+        GridCell::Integer(value) => {
+            build_aligned_cell(&value.to_string(), width, is_cut_off_to_left)
+        }
+        GridCell::Float(value) => build_aligned_cell(&value.to_string(), width, is_cut_off_to_left),
+        GridCell::BigNumber(value) => build_aligned_cell(value.as_str(), width, is_cut_off_to_left),
         GridCell::Bytes(bytes) => {
             const MAX: usize = 64;
             let hex: String = bytes.iter().take(MAX).map(|b| format!("{b:02x}")).collect();
@@ -323,16 +328,16 @@ fn build_cell<'a>(cell: &'a GridCell, right_align: bool) -> Cell<'a> {
                 format!("0x{}", hex)
             };
 
-            build_aligned_cell(formatted, right_align)
+            build_aligned_cell(&formatted, width, is_cut_off_to_left)
         }
     }
 }
 
-fn build_aligned_cell<'a, T: Into<Text<'a>>>(text: T, align_right: bool) -> Cell<'a> {
-    let text = text.into();
-    if align_right {
-        Cell::from(text.right_aligned())
+fn build_aligned_cell(text: &str, width: u16, is_cut_off_to_left: bool) -> Cell<'static> {
+    if is_cut_off_to_left {
+        let text = format!("{text:<width$}", text = text, width = width as usize);
+        Cell::from(Text::from(text).right_aligned())
     } else {
-        Cell::from(text)
+        Cell::from(text.to_string())
     }
 }
