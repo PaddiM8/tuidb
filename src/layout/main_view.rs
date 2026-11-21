@@ -236,7 +236,7 @@ impl MainView {
                     let editor_block = self.get_block_for_id("Query", MainPane::Query);
                     self.query_editor.render(frame, area, editor_block);
                 } else {
-                    let filter_block = self.get_block_for_id("Filter", MainPane::Query);
+                    let filter_block = self.get_block_for_id("", MainPane::Query);
                     self.filter_bar.render(frame, area, filter_block);
                 }
             }

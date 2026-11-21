@@ -54,16 +54,17 @@ impl FilterBar {
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
-        let label_text = "WHERE | ";
+        let label_text = " WHERE ";
         let [label_area, input_area] = Layout::horizontal([
             Constraint::Length(label_text.len() as u16),
             Constraint::Fill(1),
         ])
+        .spacing(1)
         .areas(inner);
         let [label_area] = Layout::vertical([Constraint::Length(1)]).areas(label_area);
 
         // Label
-        let label = Paragraph::new(label_text).bold();
+        let label = Paragraph::new(label_text).bold().bg(Color::Blue);
         frame.render_widget(label, label_area);
 
         // Input
