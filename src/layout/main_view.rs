@@ -60,8 +60,8 @@ pub struct MainView {
 impl MainView {
     pub fn new() -> Self {
         let sidebar = Sidebar::new(Keymap::default_selection());
-        let query_editor = QueryEditor::new(Keymap::default_global());
-        let filter_bar = FilterBar::new(Keymap::default_global());
+        let query_editor = QueryEditor::new(Keymap::default_editor());
+        let filter_bar = FilterBar::new(Keymap::default_editor());
         let grid = DataGrid::new(Keymap::default_selection());
 
         Self {
@@ -97,25 +97,41 @@ impl MainView {
         ));
     }
 
-    fn handle_key_in_component(&mut self, event: KeyEvent) -> Option<Action> {
+    fn handle_key_in_component(&mut self, event: KeyEvent) -> Vec<Action> {
+        let mut actions = Vec::new();
         match self.active {
-            MainPane::Sidebar => match self.sidebar.handle_key(event) {
-                Some(SidebarEvent::SubmittedIndex(index)) => {
-                    self.active = MainPane::Grid;
-                    self.grid.clear_selection();
-                    self.tables.get(index).cloned().map(Action::OpenTable)
-                }
-                None => None,
-            },
+            MainPane::Sidebar => {
+                actions.extend(self.handle_key_in_sidebar(event));
+            }
             MainPane::Query => {
                 if self.is_full_editor() {
-                    self.query_editor.handle_key(event)
+                    actions.extend(self.query_editor.handle_key(event))
                 } else {
-                    self.filter_bar.handle_key(event)
+                    actions.extend(self.filter_bar.handle_key(event))
                 }
             }
-            MainPane::Grid => self.grid.handle_key(event),
+            MainPane::Grid => actions.extend(self.grid.handle_key(event)),
         }
+
+        actions
+    }
+
+    fn handle_key_in_sidebar(&mut self, event: KeyEvent) -> Vec<Action> {
+        let mut actions = Vec::new();
+        for action in self.sidebar.handle_key(event) {
+            match action {
+                SidebarEvent::SubmittedIndex(index) => {
+                    self.active = MainPane::Grid;
+                    self.grid.clear_selection();
+
+                    if let Some(action) = self.tables.get(index).cloned().map(Action::OpenTable) {
+                        actions.push(action)
+                    }
+                }
+            }
+        }
+
+        actions
     }
 
     pub fn table_name(&self) -> Option<&String> {
@@ -337,39 +353,40 @@ impl MainView {
 }
 
 impl View for MainView {
-    fn handle_key(&mut self, event: KeyEvent) -> Option<Action> {
-        let Some(command) = self.keymap.resolve_event(event) else {
-            return self.handle_key_in_component(event);
-        };
-
-        if let CommandKind::Quit = command.kind {
-            return Some(Action::Quit);
-        }
-
-        match command.kind {
-            CommandKind::ToggleFullscreen => self.is_fullscreen = !self.is_fullscreen,
-            CommandKind::ToggleQueryMode => {
-                if self.active_table_name.is_none() {
-                    self.active_table_name = self
-                        .last_active_table_name
-                        .clone()
-                        .or(self.tables.first().cloned());
-                } else {
-                    self.active_table_name = None;
-                    self.sidebar.deselect();
-                    self.active = MainPane::Query;
+    fn handle_key(&mut self, event: KeyEvent) -> Vec<Action> {
+        let mut actions = Vec::new();
+        for command in self.keymap.resolve_event(event) {
+            match command.kind {
+                CommandKind::Unresolved(events) => actions.extend(
+                    events
+                        .into_iter()
+                        .flat_map(|e| self.handle_key_in_component(e)),
+                ),
+                CommandKind::Quit => actions.push(Action::Quit),
+                CommandKind::ToggleFullscreen => self.is_fullscreen = !self.is_fullscreen,
+                CommandKind::ToggleQueryMode => {
+                    if self.active_table_name.is_none() {
+                        self.active_table_name = self
+                            .last_active_table_name
+                            .clone()
+                            .or(self.tables.first().cloned());
+                    } else {
+                        self.active_table_name = None;
+                        self.sidebar.deselect();
+                        self.active = MainPane::Query;
+                    }
                 }
+                CommandKind::FocusLeft => {
+                    self.sidebar.focus();
+                    self.active = MainPane::Sidebar;
+                }
+                CommandKind::FocusUp => self.active = MainPane::Query,
+                CommandKind::FocusRight => self.active = MainPane::Query,
+                CommandKind::FocusDown => self.active = MainPane::Grid,
+                _ => actions.extend(self.handle_key_in_component(event)),
             }
-            CommandKind::FocusLeft => {
-                self.sidebar.focus();
-                self.active = MainPane::Sidebar;
-            }
-            CommandKind::FocusUp => self.active = MainPane::Query,
-            CommandKind::FocusRight => self.active = MainPane::Query,
-            CommandKind::FocusDown => self.active = MainPane::Grid,
-            _ => return self.handle_key_in_component(event),
         }
 
-        None
+        actions
     }
 }

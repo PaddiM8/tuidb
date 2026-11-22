@@ -7,6 +7,7 @@ use crossterm::event::{
     KeyCode::{self, Char},
     KeyEvent, KeyModifiers,
 };
+use edtui::EditorMode;
 
 use crate::layout::{Command, CommandKind};
 
@@ -15,6 +16,7 @@ pub struct KeyCombo {
     modifiers: Option<KeyModifiers>,
     key: KeyCode,
     second_key: Option<KeyCode>,
+    mode: EditorMode,
 }
 
 fn single(key: KeyCode) -> KeyCombo {
@@ -22,6 +24,7 @@ fn single(key: KeyCode) -> KeyCombo {
         modifiers: None,
         key: key,
         second_key: None,
+        mode: EditorMode::Normal,
     }
 }
 
@@ -30,6 +33,7 @@ fn ctrl(key: KeyCode) -> KeyCombo {
         modifiers: Some(KeyModifiers::CONTROL),
         key: key,
         second_key: None,
+        mode: EditorMode::Normal,
     }
 }
 
@@ -38,23 +42,42 @@ fn shift(key: KeyCode) -> KeyCombo {
         modifiers: Some(KeyModifiers::SHIFT),
         key: key,
         second_key: None,
+        mode: EditorMode::Normal,
     }
 }
 
-fn double(set: &mut HashSet<KeyEvent>, key: KeyCode, second_key: KeyCode) -> KeyCombo {
-    set.insert(KeyEvent::from(key));
+fn double(
+    double_keys_by_mode: &mut HashMap<EditorMode, HashSet<KeyEvent>>,
+    key: KeyCode,
+    second_key: KeyCode,
+) -> KeyCombo {
+    double_with_mode(double_keys_by_mode, key, second_key, EditorMode::Normal)
+}
+
+fn double_with_mode(
+    double_keys_by_mode: &mut HashMap<EditorMode, HashSet<KeyEvent>>,
+    key: KeyCode,
+    second_key: KeyCode,
+    mode: EditorMode,
+) -> KeyCombo {
+    if let Some(set) = double_keys_by_mode.get_mut(&mode) {
+        set.insert(KeyEvent::from(key));
+    } else {
+        double_keys_by_mode.insert(mode, HashSet::from([KeyEvent::from(key)]));
+    }
 
     KeyCombo {
         modifiers: None,
         key: key,
         second_key: Some(second_key),
+        mode: mode,
     }
 }
 
 #[derive(Clone)]
 pub struct Keymap {
     keybinds: HashMap<KeyCombo, CommandKind>,
-    double_keys: HashSet<KeyEvent>,
+    double_keys_by_mode: HashMap<EditorMode, HashSet<KeyEvent>>,
     buffer: Vec<KeyEvent>,
     last_unresolved_key_press: Option<Instant>,
 }
@@ -80,14 +103,14 @@ impl Keymap {
 
         Self {
             keybinds,
-            double_keys: HashSet::new(),
+            double_keys_by_mode: HashMap::new(),
             buffer: Vec::new(),
             last_unresolved_key_press: None,
         }
     }
 
     pub fn default_selection() -> Self {
-        let mut double_set = HashSet::new();
+        let mut double_keys_by_mode = HashMap::new();
         let keybinds = HashMap::from([
             (single(Char('h')), CommandKind::Left),
             (single(Char('k')), CommandKind::Up),
@@ -99,7 +122,7 @@ impl Keymap {
             (ctrl(Char('u')), CommandKind::HalfPageUp),
             (ctrl(Char('d')), CommandKind::HalfPageDown),
             (
-                double(&mut double_set, Char('g'), Char('g')),
+                double(&mut double_keys_by_mode, Char('g'), Char('g')),
                 CommandKind::PageTop,
             ),
             (shift(Char('G')), CommandKind::PageBottom),
@@ -107,7 +130,7 @@ impl Keymap {
 
         Self {
             keybinds,
-            double_keys: double_set,
+            double_keys_by_mode: HashMap::new(),
             buffer: Vec::new(),
             last_unresolved_key_press: None,
         }
@@ -122,7 +145,7 @@ impl Keymap {
 
         Self {
             keybinds,
-            double_keys: HashSet::new(),
+            double_keys_by_mode: HashMap::new(),
             buffer: Vec::new(),
             last_unresolved_key_press: None,
         }
@@ -143,13 +166,42 @@ impl Keymap {
         base
     }
 
-    pub fn resolve_event(&mut self, event: KeyEvent) -> Option<Command> {
+    pub fn default_editor() -> Self {
+        let mut base = Keymap::default_global();
+        base.keybinds.insert(
+            double_with_mode(
+                &mut base.double_keys_by_mode,
+                Char('j'),
+                Char('k'),
+                EditorMode::Insert,
+            ),
+            CommandKind::NormalMode,
+        );
+
+        base
+    }
+
+    pub fn resolve_event(&mut self, event: KeyEvent) -> Vec<Command> {
+        self.resolve_event_inner(event, EditorMode::Normal, true)
+    }
+
+    pub fn resolve_event_with_mode(&mut self, event: KeyEvent, mode: EditorMode) -> Vec<Command> {
+        self.resolve_event_inner(event, mode, true)
+    }
+
+    fn resolve_event_inner(
+        &mut self,
+        event: KeyEvent,
+        mode: EditorMode,
+        buffer: bool,
+    ) -> Vec<Command> {
         let modifier = if event.modifiers.is_empty() {
             None
         } else {
             Some(event.modifiers)
         };
 
+        // Clear the buffer if the last unresolved key press was too long ago to count
         if self
             .last_unresolved_key_press
             .is_some_and(|i| i.elapsed() > Duration::from_millis(750))
@@ -158,10 +210,14 @@ impl Keymap {
             self.last_unresolved_key_press = None;
         }
 
-        if modifier.is_none() && event.code.as_char().is_some_and(|c| c.is_ascii_digit()) {
+        // If it's a digit, just add it to the buffer and return, since we need to wait
+        // for an actual command to do anythin with it
+        if buffer && modifier.is_none() && event.code.as_char().is_some_and(|c| c.is_ascii_digit())
+        {
             self.buffer.push(event);
             self.last_unresolved_key_press = Some(Instant::now());
-            return None;
+
+            return Vec::new();
         }
 
         let digits: String = self
@@ -172,25 +228,21 @@ impl Keymap {
             .collect();
         let other: Option<&KeyEvent> = self.buffer.iter().skip(digits.len()).last();
 
-        if other.is_none() && self.double_keys.contains(&event) {
+        // If the pressed key could be followed by a second key, add it to the buffer and return,
+        // to wait for a potential second key press
+        // TODO: After the duration has passed and no second key was pressed, asynchronously trigger the key press
+        if buffer
+            && other.is_none()
+            && let Some(double_keys) = self.double_keys_by_mode.get(&mode)
+            && double_keys.contains(&event)
+        {
             self.buffer.push(event);
             self.last_unresolved_key_press = Some(Instant::now());
 
-            return None;
-            // TODO: After the duration has passed and no second key was pressed, asynchronously trigger the key press
-            /*if let Some(unresolved_key) = &self.unresolved_key
-                && unresolved_key.1.elapsed() < Duration::from_millis(750)
-            {
-                let key_combo = KeyCombo {
-                    modifiers: None,
-                    key: unresolved_key.0,
-                    second_key: Some(event.code),
-                };
-
-                return self.keybinds.get(&key_combo).cloned();
-            } else {
-                self.unresolved_key = Some(UnresolvedKey(event.code.clone(), Instant::now()));
-            }*/
+            return vec![Command {
+                kind: CommandKind::WaitForNextKey(event.code),
+                multiplier: 1,
+            }];
         }
 
         let key_combo = if let Some(other) = other {
@@ -198,12 +250,14 @@ impl Keymap {
                 modifiers: modifier,
                 key: other.code,
                 second_key: Some(event.code),
+                mode: mode,
             }
         } else {
             KeyCombo {
                 modifiers: modifier,
                 key: event.code,
                 second_key: None,
+                mode: mode,
             }
         };
 
@@ -211,12 +265,27 @@ impl Keymap {
         self.buffer.clear();
 
         if let Some(kind) = self.keybinds.get(&key_combo).cloned() {
-            Some(Command {
+            vec![Command {
                 kind: kind,
                 multiplier: digits.parse().unwrap_or(1),
-            })
+            }]
+        } else if let Some(second_key) = key_combo.second_key {
+            let mut commands = self.resolve_event_inner(KeyEvent::from(key_combo.key), mode, false);
+            commands.extend(self.resolve_event_inner(KeyEvent::from(second_key), mode, false));
+
+            commands
         } else {
-            None
+            let mut events: Vec<KeyEvent> = digits
+                .chars()
+                .map(|c| KeyCode::Char(c))
+                .map(|c| KeyEvent::from(c))
+                .collect();
+            events.push(event);
+
+            vec![Command {
+                kind: CommandKind::Unresolved(events),
+                multiplier: 1,
+            }]
         }
     }
 }

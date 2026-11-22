@@ -145,24 +145,27 @@ impl FindDialog {
 impl Component for FindDialog {
     type Output = Action;
 
-    fn handle_key(&mut self, event: KeyEvent) -> Option<Action> {
-        if let Some(command) = self.keymap.resolve_event(event) {
+    fn handle_key(&mut self, event: KeyEvent) -> Vec<Action> {
+        let mut actions = Vec::new();
+        for command in self.keymap.resolve_event(event) {
             let base_action = build_dialog_action(&command.kind);
-            if base_action.is_some() {
-                return base_action;
+            if let Some(base_action) = base_action {
+                actions.push(base_action);
+                continue;
             }
 
             match command.kind {
+                CommandKind::Unresolved(events) => {
+                    for event in events {
+                        self.input.handle_event(&Event::Key(event));
+                    }
+                }
                 CommandKind::Up => self.state.select_previous(),
                 CommandKind::Down => self.state.select_next(),
                 _ => (),
-            }
-
-            return None;
+            };
         }
 
-        self.input.handle_event(&Event::Key(event));
-
-        None
+        actions
     }
 }

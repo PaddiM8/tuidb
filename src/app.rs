@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Duration};
 
 use arboard::Clipboard;
 use crossterm::event::KeyEvent;
@@ -10,7 +10,9 @@ use crate::{
     database::{DatabaseConnection, QueryOptions, QueryStatus},
     keymap::Keymap,
     layout::{
-        Action, Command, CommandKind, DbEvent, View,
+        Action, Command,
+        CommandKind::{self, Unresolved},
+        DbEvent, View,
         components::{Component, query_editor::QueryEditor},
         dialogs::connections_dialog::ConnectionsDialog,
         main_view::MainView,
@@ -75,23 +77,29 @@ impl App {
     }
 
     pub fn handle_key(&mut self, event: KeyEvent) {
-        let action = if let ActiveDialog::Connections = self.active_dialog {
+        let actions = if let ActiveDialog::Connections = self.active_dialog {
             self.connections_dialog.handle_key(event)
         } else if let ActiveView::Start = self.active_view {
             self.start_view.handle_key(event)
         } else if let ActiveView::Main = self.active_view {
-            self.active_main_view_mut()
-                .and_then(|main_view| main_view.handle_key(event))
+            if let Some(main_view) = self.active_main_view_mut() {
+                main_view.handle_key(event)
+            } else {
+                Vec::new()
+            }
         } else {
-            None
+            Vec::new()
         };
 
-        if let Some(action) = action {
-            self.handle_action(action);
+        if actions.len() > 0 {
+            for action in actions {
+                self.handle_action(action);
+            }
+
             return;
         }
 
-        if let Some(command) = self.keymap.resolve_event(event) {
+        for command in self.keymap.resolve_event(event) {
             if let Some(built_action) = build_action(command) {
                 self.handle_action(built_action);
             }
@@ -149,6 +157,13 @@ impl App {
                         self.set_status_message(String::from("Failed to copy to clipboard"));
                     }
                 }
+            }
+            Action::WaitForNextKey(last_key) => {
+                let tx = self.action_tx.clone();
+                tokio::spawn(async move {
+                    tokio::time::sleep(Duration::from_millis(750)).await;
+                    let _ = tx.send(action);
+                });
             }
             Action::CloseDialog => self.set_dialog(ActiveDialog::None),
             Action::OpenConnectionsDialog => {

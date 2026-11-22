@@ -11,7 +11,7 @@ use ratatui_table::{Cell, Row, Table, TableState};
 use crate::{
     database::{GridCell, QuerySorting, QueryStatus},
     keymap::Keymap,
-    layout::{Action, CommandKind, components::Component},
+    layout::{Action, Command, CommandKind, components::Component},
     theme::Theme,
 };
 
@@ -193,44 +193,28 @@ impl DataGrid {
             self.state.select_next_column();
         }
     }
-}
 
-impl Component for DataGrid {
-    type Output = Action;
-
-    fn handle_key(&mut self, event: KeyEvent) -> Option<Action> {
-        let Some(command) = self.keymap.resolve_event(event) else {
-            return None;
-        };
-
+    fn handle_command(&mut self, command: Command) -> Option<Action> {
         match command.kind {
             CommandKind::Left => {
                 for _ in 0..command.multiplier {
                     self.focus_left();
                 }
-
-                None
             }
             CommandKind::Down => {
                 for _ in 0..command.multiplier {
                     self.state.select_next();
                 }
-
-                None
             }
             CommandKind::Right => {
                 for _ in 0..command.multiplier {
                     self.focus_right();
                 }
-
-                None
             }
             CommandKind::Up => {
                 for _ in 0..command.multiplier {
                     self.state.select_previous();
                 }
-
-                None
             }
             CommandKind::HalfPageDown => {
                 for _ in 0..command.multiplier {
@@ -239,8 +223,6 @@ impl Component for DataGrid {
                     self.state
                         .select(Some((offset as usize).min(self.row_count)));
                 }
-
-                None
             }
             CommandKind::HalfPageUp => {
                 for _ in 0..command.multiplier {
@@ -248,22 +230,22 @@ impl Component for DataGrid {
                         self.state.selected().unwrap_or(0) as i32 - self.rendered_height as i32 / 2;
                     self.state.select(Some(offset.max(0) as usize));
                 }
-
-                None
             }
             CommandKind::PageTop => {
                 self.state.select_first();
-                None
             }
             CommandKind::PageBottom => {
                 self.state.select_last();
-                None
             }
             CommandKind::Copy => match &self.status {
-                Some(QueryStatus::ConnectionError(message)) => Some(Action::Copy(message.clone())),
-                Some(QueryStatus::QueryError(message)) => Some(Action::Copy(message.clone())),
-                Some(QueryStatus::Loading) => None,
-                None => None,
+                Some(QueryStatus::ConnectionError(message)) => {
+                    return Some(Action::Copy(message.clone()));
+                }
+                Some(QueryStatus::QueryError(message)) => {
+                    return Some(Action::Copy(message.clone()));
+                }
+                Some(QueryStatus::Loading) => (),
+                None => (),
             },
             CommandKind::Sort => {
                 let Some(column_to_sort) = &self.selected_column_name else {
@@ -281,7 +263,7 @@ impl Component for DataGrid {
                         };
 
                         self.sorting = Some(new_sorting.clone());
-                        Some(Action::Sort(Some(new_sorting)))
+                        return Some(Action::Sort(Some(new_sorting)));
                     }
                     // Same column: Descending -> None
                     // New column: Descending -> Descending
@@ -293,19 +275,35 @@ impl Component for DataGrid {
                         };
 
                         self.sorting = new_sorting.clone();
-                        Some(Action::Sort(new_sorting))
+                        return Some(Action::Sort(new_sorting));
                     }
                     // None -> Ascending
                     None => {
                         let new_sorting = QuerySorting::Ascending(column_to_sort.to_string());
 
                         self.sorting = Some(new_sorting.clone());
-                        Some(Action::Sort(Some(new_sorting)))
+                        return Some(Action::Sort(Some(new_sorting)));
                     }
                 }
             }
-            _ => None,
+            _ => (),
         }
+
+        None
+    }
+}
+
+impl Component for DataGrid {
+    type Output = Action;
+
+    fn handle_key(&mut self, event: KeyEvent) -> Vec<Action> {
+        self.keymap
+            .resolve_event(event)
+            .into_iter()
+            .map(|c| self.handle_command(c))
+            .filter(|a| a.is_some())
+            .map(|a| a.unwrap())
+            .collect()
     }
 }
 

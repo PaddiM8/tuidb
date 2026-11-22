@@ -1,4 +1,4 @@
-use crossterm::event::KeyEvent;
+use crossterm::event::{KeyCode, KeyEvent};
 
 use crate::{
     app::ConnectionKey,
@@ -11,7 +11,7 @@ pub mod main_view;
 pub mod start_view;
 
 pub trait View {
-    fn handle_key(&mut self, event: KeyEvent) -> Option<Action>;
+    fn handle_key(&mut self, event: KeyEvent) -> Vec<Action>;
 }
 
 #[derive(Clone, Debug)]
@@ -22,12 +22,18 @@ pub struct Command {
 
 #[derive(Clone, Debug)]
 pub enum CommandKind {
+    Unresolved(Vec<KeyEvent>),
+
     // Global
     Quit,
+    WaitForNextKey(KeyCode),
 
     // Main
     RunQuery,
     ToggleQueryMode,
+
+    // Editor
+    NormalMode,
 
     // Navigation
     ToggleFullscreen,
@@ -60,6 +66,7 @@ pub enum CommandKind {
 pub enum Action {
     // Global
     Quit,
+    WaitForNextKey(KeyCode),
     Copy(String),
 
     // Main

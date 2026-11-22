@@ -1,8 +1,5 @@
 use crossterm::event::KeyEvent;
-use ratatui::{
-    Frame,
-    widgets::{Block, Clear},
-};
+use ratatui::{Frame, widgets::Block};
 
 use crate::{
     layout::{Action, View},
@@ -24,7 +21,7 @@ impl StartView {
 }
 
 impl View for StartView {
-    fn handle_key(&mut self, _: KeyEvent) -> Option<Action> {
-        None
+    fn handle_key(&mut self, _: KeyEvent) -> Vec<Action> {
+        Vec::new()
     }
 }

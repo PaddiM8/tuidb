@@ -1,11 +1,7 @@
-use std::time::{Duration, Instant};
-
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::KeyEvent;
 use edtui::actions::Action::DeleteWordBackward;
 use edtui::events::{KeyEventHandler, KeyEventRegister, KeyInput};
-use edtui::{
-    EditorEventHandler, EditorState, EditorTheme, EditorView, actions::Action::DeleteChar,
-};
+use edtui::{EditorEventHandler, EditorState, EditorTheme, EditorView};
 use edtui::{EditorMode, SyntaxHighlighter};
 use ratatui::DefaultTerminal;
 use ratatui::{Frame, layout::Rect, widgets::Block};
@@ -19,7 +15,6 @@ pub struct QueryEditor {
     state: EditorState,
     events: EditorEventHandler,
     keymap: Keymap,
-    last_j: Option<Instant>,
 }
 
 impl QueryEditor {
@@ -38,7 +33,6 @@ impl QueryEditor {
             state: editor_state,
             events: event_handler,
             keymap: keymap,
-            last_j: None,
         }
     }
 
@@ -75,34 +69,23 @@ impl QueryEditor {
 impl Component for QueryEditor {
     type Output = Action;
 
-    fn handle_key(&mut self, event: KeyEvent) -> Option<Action> {
-        if let KeyCode::Char('j') = event.code {
-            self.last_j = Some(Instant::now());
-        }
-
-        if let KeyCode::Char('k') = event.code
-            && let Some(t) = self.last_j
-            && t.elapsed() < Duration::from_millis(300)
-        {
-            self.state.mode = edtui::EditorMode::Normal;
-            self.state
-                .execute(DeleteChar(edtui::actions::DeleteChar(1)));
-            self.last_j = None;
-        }
-
-        let action = match self.keymap.resolve_event(event) {
-            Some(command) if let CommandKind::RunQuery = command.kind => {
-                Some(Action::RunRawQuery(self.text()))
+    fn handle_key(&mut self, event: KeyEvent) -> Vec<Action> {
+        let mut actions = Vec::new();
+        for command in self.keymap.resolve_event_with_mode(event, self.state.mode) {
+            match command.kind {
+                CommandKind::Unresolved(events) => {
+                    for event in events {
+                        self.events.on_key_event(event, &mut self.state);
+                    }
+                }
+                CommandKind::RunQuery => actions.push(Action::RunRawQuery(self.text())),
+                CommandKind::NormalMode => {
+                    self.state.mode = EditorMode::Normal;
+                }
+                _ => (),
             }
-            _ => None,
-        };
-
-        if action.is_some() {
-            return action;
         }
 
-        self.events.on_key_event(event, &mut self.state);
-
-        None
+        actions
     }
 }

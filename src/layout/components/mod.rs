@@ -8,5 +8,5 @@ pub mod sidebar;
 pub trait Component {
     type Output;
 
-    fn handle_key(&mut self, key: KeyEvent) -> Option<Self::Output>;
+    fn handle_key(&mut self, key: KeyEvent) -> Vec<Self::Output>;
 }

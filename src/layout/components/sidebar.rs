@@ -61,31 +61,29 @@ impl Sidebar {
 impl Component for Sidebar {
     type Output = SidebarEvent;
 
-    fn handle_key(&mut self, event: KeyEvent) -> Option<SidebarEvent> {
-        let Some(command) = self.keymap.resolve_event(event) else {
-            return None;
-        };
-
-        match command.kind {
-            CommandKind::Down => {
-                for _ in 0..command.multiplier {
-                    self.state.select_next();
+    fn handle_key(&mut self, event: KeyEvent) -> Vec<SidebarEvent> {
+        let mut actions = Vec::new();
+        for command in self.keymap.resolve_event(event) {
+            match command.kind {
+                CommandKind::Down => {
+                    for _ in 0..command.multiplier {
+                        self.state.select_next();
+                    }
                 }
-
-                None
-            }
-            CommandKind::Up => {
-                for _ in 0..command.multiplier {
-                    self.state.select_previous();
+                CommandKind::Up => {
+                    for _ in 0..command.multiplier {
+                        self.state.select_previous();
+                    }
                 }
-
-                None
+                CommandKind::Submit => {
+                    if let Some(index) = self.state.selected() {
+                        actions.push(SidebarEvent::SubmittedIndex(index));
+                    }
+                }
+                _ => (),
             }
-            CommandKind::Submit => self
-                .state
-                .selected()
-                .map(|i| SidebarEvent::SubmittedIndex(i)),
-            _ => None,
         }
+
+        actions
     }
 }

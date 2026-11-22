@@ -42,17 +42,24 @@ impl ConnectionsDialog {
 impl Component for ConnectionsDialog {
     type Output = Action;
 
-    fn handle_key(&mut self, event: KeyEvent) -> Option<Action> {
-        let Some(command) = self.keymap.resolve_event(event) else {
-            return None;
-        };
-
-        if let CommandKind::Submit = command.kind
-            && let Some(connection_name) = self.base_dialog.selected_value()
-        {
-            return Some(Action::OpenConnection(connection_name.to_string()));
+    fn handle_key(&mut self, event: KeyEvent) -> Vec<Action> {
+        let mut actions = Vec::new();
+        for command in self.keymap.resolve_event(event) {
+            match command.kind {
+                CommandKind::Unresolved(events) => {
+                    events
+                        .into_iter()
+                        .flat_map(|e| self.base_dialog.handle_key(e));
+                }
+                CommandKind::Submit
+                    if let Some(connection_name) = self.base_dialog.selected_value() =>
+                {
+                    actions.push(Action::OpenConnection(connection_name.to_string()));
+                }
+                _ => (),
+            }
         }
 
-        self.base_dialog.handle_key(event)
+        actions
     }
 }

@@ -1,7 +1,5 @@
-use std::time::{Duration, Instant};
-
 use crossterm::event::{KeyCode, KeyEvent};
-use edtui::actions::Action::{DeleteChar, DeleteWordBackward};
+use edtui::actions::Action::DeleteWordBackward;
 use edtui::events::{KeyEventHandler, KeyEventRegister, KeyInput};
 use edtui::{
     EditorEventHandler, EditorMode, EditorState, EditorTheme, EditorView, SyntaxHighlighter,
@@ -21,7 +19,6 @@ pub struct FilterBar {
     keymap: Keymap,
     state: EditorState,
     events: EditorEventHandler,
-    last_j: Option<Instant>,
 }
 
 impl FilterBar {
@@ -40,7 +37,6 @@ impl FilterBar {
             keymap: keymap,
             state: editor_state,
             events: event_handler,
-            last_j: None,
         }
     }
 
@@ -89,7 +85,8 @@ impl FilterBar {
 
         let view = EditorView::new(&mut self.state)
             .theme(theme)
-            .syntax_highlighter(syntax_highlighter);
+            .syntax_highlighter(syntax_highlighter)
+            .single_line(true);
         frame.render_widget(view, input_area);
     }
 }
@@ -97,38 +94,31 @@ impl FilterBar {
 impl Component for FilterBar {
     type Output = Action;
 
-    fn handle_key(&mut self, event: KeyEvent) -> Option<Action> {
-        if let KeyCode::Char('j') = event.code {
-            self.last_j = Some(Instant::now());
-        }
-
-        if let KeyCode::Char('k') = event.code
-            && let Some(t) = self.last_j
-            && t.elapsed() < Duration::from_millis(300)
-        {
-            self.state.mode = edtui::EditorMode::Normal;
-            self.state
-                .execute(DeleteChar(edtui::actions::DeleteChar(1)));
-            self.last_j = None;
-        }
-
-        if event.code == KeyCode::Enter {
-            return Some(Action::Filter(self.text()));
-        }
-
-        let action = match self.keymap.resolve_event(event) {
-            Some(command) if let CommandKind::RunQuery = command.kind => {
-                Some(Action::Filter(self.text()))
+    fn handle_key(&mut self, event: KeyEvent) -> Vec<Action> {
+        let mut actions = Vec::new();
+        for command in self.keymap.resolve_event_with_mode(event, self.state.mode) {
+            if event.code == KeyCode::Enter {
+                actions.push(Action::Filter(self.text()));
+                continue;
             }
-            _ => None,
-        };
 
-        if action.is_some() {
-            return action;
+            match command.kind {
+                CommandKind::Unresolved(events) => {
+                    for event in events {
+                        self.events.on_key_event(event, &mut self.state);
+                    }
+                }
+                CommandKind::WaitForNextKey(last_key) => {
+                    actions.push(Action::WaitForNextKey(last_key));
+                }
+                CommandKind::RunQuery => actions.push(Action::RunRawQuery(self.text())),
+                CommandKind::NormalMode => {
+                    self.state.mode = EditorMode::Normal;
+                }
+                _ => (),
+            }
         }
 
-        self.events.on_key_event(event, &mut self.state);
-
-        None
+        actions
     }
 }
