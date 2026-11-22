@@ -14,7 +14,7 @@ use ratatui::{
 use thousands::Separable;
 
 use crate::{
-    config::ConnectionEntry,
+    config::{ConnectionColor, ConnectionEntry},
     database::{GridCell, QueryOptions, QueryResult, QuerySorting, QueryStatus},
     keymap::Keymap,
     layout::{
@@ -155,7 +155,13 @@ impl MainView {
 
     pub fn render(&mut self, frame: &mut Frame, connection: &ConnectionEntry, theme: &Theme) {
         if self.is_fullscreen {
-            self.render_pane(self.active, frame, theme, frame.area());
+            self.render_pane(
+                self.active,
+                frame,
+                theme,
+                connection.color.as_ref(),
+                frame.area(),
+            );
             return;
         }
 
@@ -171,11 +177,29 @@ impl MainView {
             Layout::vertical([Constraint::Length(editor_area_height), Constraint::Fill(1)])
                 .areas(main_area);
 
-        self.render_pane(MainPane::Sidebar, frame, theme, sidebar_area);
-        self.render_pane(MainPane::Grid, frame, theme, grid_area);
-        self.render_pane(MainPane::Query, frame, theme, editor_area);
+        self.render_pane(
+            MainPane::Sidebar,
+            frame,
+            theme,
+            connection.color.as_ref(),
+            sidebar_area,
+        );
+        self.render_pane(
+            MainPane::Grid,
+            frame,
+            theme,
+            connection.color.as_ref(),
+            grid_area,
+        );
+        self.render_pane(
+            MainPane::Query,
+            frame,
+            theme,
+            connection.color.as_ref(),
+            editor_area,
+        );
 
-        self.render_status_bar(status_bar_area, frame, theme, &connection.name);
+        self.render_status_bar(status_bar_area, frame, theme, &connection);
     }
 
     fn render_status_bar(
@@ -183,7 +207,7 @@ impl MainView {
         status_bar_area: Rect,
         frame: &mut Frame,
         theme: &Theme,
-        connection_name: &str,
+        connection: &ConnectionEntry,
     ) {
         let row_count_text = if let Some(row_count) = self.reported_row_count {
             format!("{} rows", row_count.separate_with_spaces())
@@ -193,7 +217,7 @@ impl MainView {
 
         let [mode_area, connection_area, status_area, row_count_area] = Layout::horizontal([
             Constraint::Length(8),
-            Constraint::Max(connection_name.len().min(32) as u16),
+            Constraint::Max(connection.name.len().min(32) as u16),
             Constraint::Fill(1),
             Constraint::Max(row_count_text.len().min(32) as u16),
         ])
@@ -215,7 +239,7 @@ impl MainView {
         frame.render_widget(mode_widget, mode_area);
 
         // Connection
-        let connection_widget = Paragraph::new::<&str>(connection_name);
+        let connection_widget = Paragraph::new::<&str>(&connection.name);
         frame.render_widget(connection_widget, connection_area);
 
         // Status
@@ -231,20 +255,31 @@ impl MainView {
         frame.render_widget(row_count_widget, row_count_area);
     }
 
-    fn render_pane(&mut self, pane: MainPane, frame: &mut Frame, theme: &Theme, area: Rect) {
+    fn render_pane(
+        &mut self,
+        pane: MainPane,
+        frame: &mut Frame,
+        theme: &Theme,
+        connection_color: Option<&ConnectionColor>,
+        area: Rect,
+    ) {
         match pane {
             MainPane::Sidebar => {
-                let sidebar_block = self.get_block_for_id("Tables", MainPane::Sidebar, theme);
+                let sidebar_block =
+                    self.get_block_for_id("Tables", MainPane::Sidebar, theme, connection_color);
                 self.sidebar
                     .render(frame, theme, area, sidebar_block, &self.tables);
             }
             MainPane::Query => {
                 if self.is_full_editor() {
-                    let editor_block = self.get_block_for_id("Query", MainPane::Query, theme);
+                    let editor_block =
+                        self.get_block_for_id("Query", MainPane::Query, theme, connection_color);
                     self.query_editor.render(frame, theme, area, editor_block);
                 } else {
-                    let filter_block = self.get_block_for_id("", MainPane::Query, theme);
-                    self.filter_bar.render(frame, theme, area, filter_block);
+                    let filter_block =
+                        self.get_block_for_id("", MainPane::Query, theme, connection_color);
+                    self.filter_bar
+                        .render(frame, theme, connection_color, area, filter_block);
                 }
             }
             MainPane::Grid => {
@@ -254,7 +289,8 @@ impl MainView {
                     String::from("Rows")
                 };
 
-                let grid_block = self.get_block_for_id(&title, MainPane::Grid, theme);
+                let grid_block =
+                    self.get_block_for_id(&title, MainPane::Grid, theme, connection_color);
                 self.grid.render(
                     frame,
                     theme,
@@ -271,9 +307,18 @@ impl MainView {
         self.active_table_name.is_none()
     }
 
-    fn get_block_for_id<'a>(&self, title: &'a str, pane: MainPane, theme: &Theme) -> Block<'a> {
+    fn get_block_for_id<'a>(
+        &self,
+        title: &'a str,
+        pane: MainPane,
+        theme: &Theme,
+        connection_color: Option<&ConnectionColor>,
+    ) -> Block<'a> {
         let border_style = if self.active == pane {
-            theme.border_selected
+            connection_color.map_or_else(
+                || theme.border_selected,
+                |c| Style::new().fg(c.into_themed(theme)),
+            )
         } else {
             theme.border
         };

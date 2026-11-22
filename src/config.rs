@@ -2,7 +2,10 @@ use std::{fs, path::Path};
 
 use color_eyre::eyre::Context;
 use color_eyre::eyre::Result;
+use ratatui::style::Color;
 use serde::Deserialize;
+
+use crate::theme::Theme;
 
 #[derive(Debug, Deserialize)]
 pub struct Config {
@@ -29,8 +32,53 @@ impl Config {
 #[derive(Clone, Debug, Deserialize)]
 pub struct ConnectionEntry {
     pub name: String,
+    pub color: Option<ConnectionColor>,
     #[serde(flatten)]
     pub backend: BackendDetails,
+}
+
+#[derive(Copy, Clone, Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConnectionColor {
+    Black,
+    Red,
+    Green,
+    Yellow,
+    Blue,
+    Magenta,
+    Cyan,
+    Gray,
+    DarkGray,
+    LightRed,
+    LightGreen,
+    LightYellow,
+    LightBlue,
+    LightMagenta,
+    LightCyan,
+    White,
+}
+
+impl ConnectionColor {
+    pub fn into_themed(&self, theme: &Theme) -> Color {
+        match self {
+            ConnectionColor::Black => theme.black,
+            ConnectionColor::Red => theme.red,
+            ConnectionColor::Green => theme.green,
+            ConnectionColor::Yellow => theme.yellow,
+            ConnectionColor::Blue => theme.blue,
+            ConnectionColor::Magenta => theme.magenta,
+            ConnectionColor::Cyan => theme.cyan,
+            ConnectionColor::Gray => theme.gray,
+            ConnectionColor::DarkGray => theme.dark_gray,
+            ConnectionColor::LightRed => theme.light_red,
+            ConnectionColor::LightGreen => theme.light_green,
+            ConnectionColor::LightYellow => theme.light_yellow,
+            ConnectionColor::LightBlue => theme.light_blue,
+            ConnectionColor::LightMagenta => theme.light_magenta,
+            ConnectionColor::LightCyan => theme.light_cyan,
+            ConnectionColor::White => theme.white,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -61,10 +109,4 @@ pub struct SqlServerConnectionDetails {
     pub port: u16,
     pub username: String,
     pub password: String,
-}
-
-impl ConnectionEntry {
-    pub fn new(name: String, backend: BackendDetails) -> Self {
-        Self { name, backend }
-    }
 }
