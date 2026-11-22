@@ -278,8 +278,14 @@ impl MainView {
                 } else {
                     let filter_block =
                         self.get_block_for_id("", MainPane::Query, theme, connection_color);
-                    self.filter_bar
-                        .render(frame, theme, connection_color, area, filter_block);
+                    self.filter_bar.render(
+                        frame,
+                        theme,
+                        connection_color,
+                        area,
+                        filter_block,
+                        self.active == MainPane::Query,
+                    );
                 }
             }
             MainPane::Grid => {

@@ -59,6 +59,7 @@ impl FilterBar {
         connection_color: Option<&ConnectionColor>,
         area: Rect,
         block: Block,
+        is_focused: bool,
     ) {
         let inner = block.inner(area);
         frame.render_widget(block, area);
@@ -73,9 +74,13 @@ impl FilterBar {
         let [label_area] = Layout::vertical([Constraint::Length(1)]).areas(label_area);
 
         // Label
-        let label = Paragraph::new(label_text)
-            .bold()
-            .bg(connection_color.map_or_else(|| theme.blue, |c| c.into_themed(theme)));
+        let mut label = Paragraph::new(label_text).bold();
+        if is_focused {
+            label = label.bg(connection_color.map_or_else(|| theme.blue, |c| c.into_themed(theme)));
+        } else {
+            label = label.style(theme.border.reversed()).bg(theme.white);
+        };
+
         frame.render_widget(label, label_area);
 
         // Input
