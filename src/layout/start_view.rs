@@ -1,7 +1,13 @@
 use crossterm::event::KeyEvent;
-use ratatui::{Frame, widgets::Clear};
+use ratatui::{
+    Frame,
+    widgets::{Block, Clear},
+};
 
-use crate::layout::{Action, View};
+use crate::{
+    layout::{Action, View},
+    theme::Theme,
+};
 
 pub struct StartView {}
 
@@ -12,8 +18,8 @@ impl StartView {
 }
 
 impl StartView {
-    pub fn render(&mut self, frame: &mut Frame) {
-        frame.render_widget(Clear, frame.area());
+    pub fn render(&mut self, frame: &mut Frame, theme: &Theme) {
+        frame.render_widget(Block::new().style(theme.style), frame.area());
     }
 }
 

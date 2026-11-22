@@ -6,7 +6,7 @@ use nucleo_matcher::{
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::ToText,
     widgets::{Block, Borders, Clear, List, ListState, Paragraph},
 };
@@ -15,6 +15,7 @@ use tui_input::{Input, backend::crossterm::EventHandler};
 use crate::{
     keymap::Keymap,
     layout::{Action, Command, components::Component, dialogs::build_dialog_action},
+    theme::Theme,
 };
 
 pub struct FindDialog {
@@ -53,7 +54,14 @@ impl FindDialog {
         self.selected_value.as_deref()
     }
 
-    pub fn render(&mut self, frame: &mut Frame, area: Rect, block: Block, items: &Vec<&str>) {
+    pub fn render(
+        &mut self,
+        frame: &mut Frame,
+        theme: &Theme,
+        area: Rect,
+        block: Block,
+        items: &Vec<&str>,
+    ) {
         let area = super::centered(area, area.width.min(40), area.height.min(15));
         frame.render_widget(
             Block::new().style(Style::default().add_modifier(Modifier::DIM)),
@@ -78,8 +86,9 @@ impl FindDialog {
             .scroll((0, scroll as u16))
             .block(
                 Block::new()
+                    .style(theme.style)
                     .borders(Borders::BOTTOM)
-                    .border_style(Style::new().fg(Color::DarkGray)),
+                    .border_style(theme.border),
             );
         frame.render_widget(input, input_area);
 
@@ -127,7 +136,8 @@ impl FindDialog {
 
         let list = List::new(results)
             .block(Block::new())
-            .highlight_style(Style::new().on_dark_gray());
+            .style(theme.style)
+            .highlight_style(theme.item_selected);
         frame.render_stateful_widget(list, list_area, &mut self.state);
     }
 }

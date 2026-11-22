@@ -8,12 +8,13 @@ use edtui::{
 };
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::{Color, Style, Stylize};
+use ratatui::style::Stylize;
 use ratatui::widgets::{Block, Paragraph};
 
 use crate::keymap::Keymap;
 use crate::layout::components::Component;
 use crate::layout::{Action, Command};
+use crate::theme::Theme;
 
 pub struct FilterBar {
     keymap: Keymap,
@@ -50,7 +51,7 @@ impl FilterBar {
         self.state.lines.to_string()
     }
 
-    pub fn render(&mut self, frame: &mut Frame, area: Rect, block: Block) {
+    pub fn render(&mut self, frame: &mut Frame, theme: &Theme, area: Rect, block: Block) {
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
@@ -64,12 +65,11 @@ impl FilterBar {
         let [label_area] = Layout::vertical([Constraint::Length(1)]).areas(label_area);
 
         // Label
-        let label = Paragraph::new(label_text).bold().bg(Color::Blue);
+        let label = Paragraph::new(label_text).bold().bg(theme.blue);
         frame.render_widget(label, label_area);
 
         // Input
-        let transparent = Style::default().bg(Color::Reset).fg(Color::Reset);
-        let theme = EditorTheme::default().base(transparent).hide_status_line();
+        let theme = EditorTheme::default().base(theme.style).hide_status_line();
         let syntax_highlighter = SyntaxHighlighter::new("kronuz", "sql").ok();
 
         let view = EditorView::new(&mut self.state)

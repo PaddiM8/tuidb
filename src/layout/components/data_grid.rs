@@ -2,7 +2,7 @@ use crossterm::event::KeyEvent;
 use ratatui::{
     Frame,
     layout::{Constraint, Rect},
-    style::{Color, Style, Stylize},
+    style::Stylize,
     text::Text,
     widgets::{Block, Paragraph, Wrap},
 };
@@ -12,6 +12,7 @@ use crate::{
     database::{GridCell, QuerySorting, QueryStatus},
     keymap::Keymap,
     layout::{Action, Command, components::Component},
+    theme::Theme,
 };
 
 pub struct DataGrid {
@@ -54,6 +55,7 @@ impl DataGrid {
     pub fn render(
         &mut self,
         frame: &mut Frame,
+        theme: &Theme,
         area: Rect,
         block: Block,
         header: &Vec<String>,
@@ -67,7 +69,7 @@ impl DataGrid {
         match &self.status {
             Some(QueryStatus::ConnectionError(message) | QueryStatus::QueryError(message)) => {
                 let paragraph = Paragraph::new(message.as_str())
-                    .fg(Color::Red)
+                    .fg(theme.red)
                     .wrap(Wrap { trim: true })
                     .block(block);
                 frame.render_widget(paragraph, area);
@@ -76,7 +78,7 @@ impl DataGrid {
             }
             Some(QueryStatus::Loading) => {
                 let paragraph = Paragraph::new("Loading...")
-                    .fg(Color::DarkGray)
+                    .fg(theme.dark_gray)
                     .wrap(Wrap { trim: true })
                     .block(block);
                 frame.render_widget(paragraph, area);
@@ -151,12 +153,13 @@ impl DataGrid {
                 self.visible_column_count,
                 widths.as_slice(),
                 right_align_first_column,
+                theme,
             )
         })
         .header(Row::new(header_cells).bold())
-        .row_highlight_style(Style::new().on_dark_gray())
-        .column_highlight_style(Style::new().on_dark_gray())
-        .cell_highlight_style(Style::new().reversed())
+        .row_highlight_style(theme.item_selected_secondary)
+        .column_highlight_style(theme.item_selected_secondary)
+        .cell_highlight_style(theme.item_selected)
         .block(block);
 
         frame.render_stateful_widget(table, area, &mut self.state);
@@ -276,13 +279,14 @@ fn build_row<'a>(
     column_count: usize,
     widths: &'a [u16],
     right_align_first_column: bool,
+    theme: &Theme,
 ) -> Row<'a> {
     let cells = items[index]
         .iter()
         .skip(horizontal_scroll)
         .take(column_count)
         .enumerate()
-        .map(|(i, c)| build_cell(c, widths[i], right_align_first_column && i == 0));
+        .map(|(i, c)| build_cell(c, widths[i], right_align_first_column && i == 0, theme));
 
     Row::new(cells)
 }
@@ -306,12 +310,17 @@ fn build_header_cell<'a>(
     build_aligned_cell(&formatted, width as u16, is_cut_off_to_left)
 }
 
-fn build_cell<'a>(cell: &'a GridCell, width: u16, is_cut_off_to_left: bool) -> Cell<'a> {
+fn build_cell<'a>(
+    cell: &'a GridCell,
+    width: u16,
+    is_cut_off_to_left: bool,
+    theme: &Theme,
+) -> Cell<'a> {
     match cell {
         GridCell::Error(message) => {
-            build_aligned_cell(message.as_str(), width, is_cut_off_to_left).fg(Color::Red)
+            build_aligned_cell(message.as_str(), width, is_cut_off_to_left).fg(theme.red)
         }
-        GridCell::Null => build_aligned_cell("null", width, is_cut_off_to_left).fg(Color::Gray),
+        GridCell::Null => build_aligned_cell("null", width, is_cut_off_to_left).fg(theme.gray),
         GridCell::String(value) => build_aligned_cell(value.as_str(), width, is_cut_off_to_left),
         GridCell::Bool(value) => {
             if *value {

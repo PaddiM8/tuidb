@@ -4,6 +4,7 @@ use ratatui::{prelude::*, widgets::*};
 use crate::{
     keymap::Keymap,
     layout::{Command, components::Component},
+    theme::Theme,
 };
 
 pub enum SidebarEvent {
@@ -37,10 +38,17 @@ impl Sidebar {
         self.state.select(None);
     }
 
-    pub fn render(&mut self, frame: &mut Frame, area: Rect, block: Block, items: &Vec<String>) {
+    pub fn render(
+        &mut self,
+        frame: &mut Frame,
+        theme: &Theme,
+        area: Rect,
+        block: Block,
+        items: &Vec<String>,
+    ) {
         let list = List::new(items.iter().map(|s| s.as_str()))
             .block(block)
-            .highlight_style(Style::new().on_dark_gray());
+            .highlight_style(theme.item_selected);
 
         if self.state.selected().is_some() {
             self.last_selected = self.state.selected();

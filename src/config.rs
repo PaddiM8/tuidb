@@ -7,6 +7,7 @@ use serde::Deserialize;
 #[derive(Debug, Deserialize)]
 pub struct Config {
     pub connections: Vec<ConnectionEntry>,
+    pub theme: Option<String>,
 }
 
 impl Config {

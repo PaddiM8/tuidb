@@ -5,6 +5,7 @@ use crate::{
     config::ConnectionEntry,
     keymap::Keymap,
     layout::{Action, Command, components::Component, dialogs::find_dialog::FindDialog},
+    theme::Theme,
 };
 
 pub struct ConnectionsDialog {
@@ -27,13 +28,14 @@ impl ConnectionsDialog {
     pub fn render(
         &mut self,
         frame: &mut Frame,
+        theme: &Theme,
         area: Rect,
         block: Block,
         connections: &Vec<ConnectionEntry>,
     ) {
         let connection_names = connections.iter().map(|c| c.name.as_ref()).collect();
         self.base_dialog
-            .render(frame, area, block, &connection_names)
+            .render(frame, theme, area, block, &connection_names)
     }
 }
 

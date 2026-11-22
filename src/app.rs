@@ -2,11 +2,7 @@ use std::collections::HashMap;
 
 use arboard::Clipboard;
 use crossterm::event::KeyEvent;
-use ratatui::{
-    Frame,
-    style::{Color, Style},
-    widgets::Block,
-};
+use ratatui::{Frame, widgets::Block};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::{
@@ -20,6 +16,7 @@ use crate::{
         main_view::MainView,
         start_view::StartView,
     },
+    theme::Theme,
 };
 
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -40,6 +37,7 @@ pub struct ConnectionKey(String, String);
 pub struct App {
     pub should_quit: bool,
     config: Config,
+    theme: Theme,
     action_tx: UnboundedSender<Action>,
     keymap: Keymap,
     clipboard: Option<Clipboard>,
@@ -53,10 +51,11 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(config: Config, action_tx: UnboundedSender<Action>) -> Self {
+    pub fn new(config: Config, theme: Theme, action_tx: UnboundedSender<Action>) -> Self {
         Self {
             should_quit: false,
             config: config,
+            theme: theme,
             action_tx: action_tx,
             keymap: Keymap::default_global(),
             clipboard: Clipboard::new().ok(),
@@ -100,13 +99,16 @@ impl App {
     }
 
     pub fn render(&mut self, frame: &mut Frame) {
+        let area = frame.area();
+        frame.buffer_mut().set_style(area, self.theme.style);
+
         match self.active_view {
             ActiveView::Start => {
                 if let ActiveDialog::None = self.active_dialog {
                     self.should_quit = true;
                 }
 
-                self.start_view.render(frame)
+                self.start_view.render(frame, &self.theme)
             }
             ActiveView::Main => {
                 let key = self.active_main_view_key.as_ref();
@@ -117,7 +119,7 @@ impl App {
                 if let Some(main_view) = main_view
                     && let Some(config) = config
                 {
-                    main_view.render(frame, config)
+                    main_view.render(frame, config, &self.theme)
                 } else {
                     self.connections_dialog.reset();
                     self.set_view(ActiveView::Start);
@@ -129,8 +131,9 @@ impl App {
         if let ActiveDialog::Connections = self.active_dialog {
             self.connections_dialog.render(
                 frame,
+                &self.theme,
                 frame.area(),
-                Block::bordered().border_style(Style::new().fg(Color::Cyan)),
+                Block::bordered().border_style(self.theme.border_selected),
                 &self.config.connections,
             );
         }

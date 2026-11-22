@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use color_eyre::eyre::{ContextCompat, Result};
 use crossterm::{
     event::{
@@ -9,14 +11,17 @@ use crossterm::{
 };
 use futures::StreamExt;
 use ratatui::DefaultTerminal;
+use supports_color::Stream;
 use tokio::sync::mpsc;
 
-use crate::{app::App, config::Config, layout::Action};
+use crate::{app::App, config::Config, layout::Action, theme::Theme};
+
 mod app;
 mod config;
 mod database;
 mod keymap;
 mod layout;
+mod theme;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -29,14 +34,24 @@ async fn main() -> Result<()> {
 }
 
 async fn run(terminal: &mut DefaultTerminal) -> Result<()> {
-    let path = dirs::config_dir()
+    let config_dir = dirs::config_dir()
         .context("could not determine config directory")?
-        .join("tuidb")
-        .join("config.toml");
+        .join("tuidb");
 
-    let config = Config::load_from_path(&path)?;
+    let config_path = config_dir.join("config.toml");
+    let config = Config::load_from_path(&config_path)?;
+
+    let theme = if let Some(theme_path) = &config.theme {
+        Theme::load_from_path(Path::new(theme_path))?
+    } else {
+        match supports_color::on(Stream::Stdout) {
+            Some(support) if support.has_256 || support.has_16m => Theme::default_truecolor(),
+            _ => Theme::default_basic(),
+        }
+    };
+
     let (tx, mut rx) = mpsc::unbounded_channel::<Action>();
-    let mut app = App::new(config, tx.clone());
+    let mut app = App::new(config, theme, tx.clone());
     let mut reader = EventStream::new();
 
     let enhanced = supports_keyboard_enhancement().unwrap_or(false);

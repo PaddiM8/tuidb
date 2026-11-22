@@ -4,21 +4,16 @@ use crossterm::event::{KeyCode, KeyEvent};
 use edtui::actions::Action::DeleteWordBackward;
 use edtui::events::{KeyEventHandler, KeyEventRegister, KeyInput};
 use edtui::{
-    EditorEventHandler, EditorState, EditorStatusLine, EditorTheme, EditorView,
-    actions::Action::DeleteChar,
+    EditorEventHandler, EditorState, EditorTheme, EditorView, actions::Action::DeleteChar,
 };
 use edtui::{EditorMode, SyntaxHighlighter};
 use ratatui::DefaultTerminal;
-use ratatui::{
-    Frame,
-    layout::Rect,
-    style::{Color, Modifier, Style},
-    widgets::Block,
-};
+use ratatui::{Frame, layout::Rect, widgets::Block};
 
 use crate::keymap::Keymap;
 use crate::layout::components::Component;
 use crate::layout::{Action, Command};
+use crate::theme::Theme;
 
 pub struct QueryEditor {
     state: EditorState,
@@ -63,10 +58,9 @@ impl QueryEditor {
         edtui::system_editor::open(&mut self.state, terminal)
     }
 
-    pub fn render(&mut self, frame: &mut Frame, area: Rect, block: Block) {
-        let transparent = Style::default().bg(Color::Reset).fg(Color::Reset);
+    pub fn render(&mut self, frame: &mut Frame, theme: &Theme, area: Rect, block: Block) {
         let theme = EditorTheme::default()
-            .base(transparent)
+            .base(theme.style)
             .hide_status_line()
             .block(block);
         let syntax_highlighter = SyntaxHighlighter::new("kronuz", "sql").ok();
