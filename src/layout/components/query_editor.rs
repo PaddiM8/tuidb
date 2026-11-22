@@ -8,7 +8,7 @@ use ratatui::{Frame, layout::Rect, widgets::Block};
 
 use crate::keymap::Keymap;
 use crate::layout::components::Component;
-use crate::layout::{Action, CommandKind};
+use crate::layout::{Action, CommandKind, Mode};
 use crate::theme::Theme;
 
 pub struct QueryEditor {
@@ -36,8 +36,13 @@ impl QueryEditor {
         }
     }
 
-    pub fn mode(&self) -> EditorMode {
-        self.state.mode
+    pub fn mode(&self) -> Mode {
+        match self.state.mode {
+            EditorMode::Normal => Mode::Normal,
+            EditorMode::Insert => Mode::Insert,
+            EditorMode::Visual => Mode::Visual,
+            EditorMode::Search => Mode::Search,
+        }
     }
 
     pub fn text(&self) -> String {
@@ -71,7 +76,7 @@ impl Component for QueryEditor {
 
     fn handle_key(&mut self, event: KeyEvent) -> Vec<Action> {
         let mut actions = Vec::new();
-        for command in self.keymap.resolve_event_with_mode(event, self.state.mode) {
+        for command in self.keymap.resolve_event_with_mode(event, self.mode()) {
             match command.kind {
                 CommandKind::Unresolved(events) => {
                     for event in events {

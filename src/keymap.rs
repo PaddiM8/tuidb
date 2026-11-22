@@ -1,22 +1,27 @@
 use std::{
     collections::{HashMap, HashSet},
+    fs,
+    path::Path,
     time::{Duration, Instant},
 };
 
+use color_eyre::eyre::{Context, Result};
 use crossterm::event::{
     KeyCode::{self, Char},
     KeyEvent, KeyModifiers,
 };
-use edtui::EditorMode;
 
-use crate::layout::{Command, CommandKind};
+use crate::{
+    config::KeybindConfigEntry,
+    layout::{Command, CommandKind, Mode},
+};
 
-#[derive(Clone, Hash, PartialEq, Eq)]
+#[derive(Clone, Hash, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct KeyCombo {
     modifiers: Option<KeyModifiers>,
     key: KeyCode,
     second_key: Option<KeyCode>,
-    mode: EditorMode,
+    mode: Mode,
 }
 
 fn single(key: KeyCode) -> KeyCombo {
@@ -24,7 +29,7 @@ fn single(key: KeyCode) -> KeyCombo {
         modifiers: None,
         key: key,
         second_key: None,
-        mode: EditorMode::Normal,
+        mode: Mode::Normal,
     }
 }
 
@@ -33,7 +38,7 @@ fn ctrl(key: KeyCode) -> KeyCombo {
         modifiers: Some(KeyModifiers::CONTROL),
         key: key,
         second_key: None,
-        mode: EditorMode::Normal,
+        mode: Mode::Normal,
     }
 }
 
@@ -42,23 +47,23 @@ fn shift(key: KeyCode) -> KeyCombo {
         modifiers: Some(KeyModifiers::SHIFT),
         key: key,
         second_key: None,
-        mode: EditorMode::Normal,
+        mode: Mode::Normal,
     }
 }
 
 fn double(
-    double_keys_by_mode: &mut HashMap<EditorMode, HashSet<KeyEvent>>,
+    double_keys_by_mode: &mut HashMap<Mode, HashSet<KeyEvent>>,
     key: KeyCode,
     second_key: KeyCode,
 ) -> KeyCombo {
-    double_with_mode(double_keys_by_mode, key, second_key, EditorMode::Normal)
+    double_with_mode(double_keys_by_mode, key, second_key, Mode::Normal)
 }
 
 fn double_with_mode(
-    double_keys_by_mode: &mut HashMap<EditorMode, HashSet<KeyEvent>>,
+    double_keys_by_mode: &mut HashMap<Mode, HashSet<KeyEvent>>,
     key: KeyCode,
     second_key: KeyCode,
-    mode: EditorMode,
+    mode: Mode,
 ) -> KeyCombo {
     if let Some(set) = double_keys_by_mode.get_mut(&mode) {
         set.insert(KeyEvent::from(key));
@@ -77,14 +82,92 @@ fn double_with_mode(
 #[derive(Clone)]
 pub struct Keymap {
     keybinds: HashMap<KeyCombo, CommandKind>,
-    double_keys_by_mode: HashMap<EditorMode, HashSet<KeyEvent>>,
+    double_keys_by_mode: HashMap<Mode, HashSet<KeyEvent>>,
     buffer: Vec<KeyEvent>,
     last_unresolved_key_press: Option<Instant>,
 }
 
+fn add_keybinds(
+    target: &mut HashMap<KeyCombo, CommandKind>,
+    double_keys_by_mode: &mut HashMap<Mode, HashSet<KeyEvent>>,
+    keybinds: &Vec<KeybindConfigEntry>,
+) {
+    for keybind in keybinds {
+        let split_by_plus: Vec<&str> = keybind.binding.split('+').collect();
+
+        let mut modifiers: Option<KeyModifiers> = None;
+        let keys: Vec<&str> = if split_by_plus.len() > 1 {
+            modifiers = match split_by_plus[0].to_lowercase().as_ref() {
+                "ctrl" => Some(KeyModifiers::CONTROL),
+                "shift" => Some(KeyModifiers::SHIFT),
+                "alt" => Some(KeyModifiers::ALT),
+                _ => None,
+            };
+
+            split_by_plus[1].split(' ').collect()
+        } else {
+            split_by_plus[0].split(' ').collect()
+        };
+
+        let key = parse_keycode(keys[0]);
+        if keys.len() > 1 {
+            if let Some(set) = double_keys_by_mode.get_mut(&keybind.mode) {
+                set.insert(KeyEvent::from(key));
+            } else {
+                double_keys_by_mode.insert(keybind.mode, HashSet::from([KeyEvent::from(key)]));
+            }
+        }
+
+        let key_combo = KeyCombo {
+            modifiers: modifiers,
+            key: key,
+            second_key: keys.get(1).map(|key| parse_keycode(key)),
+            mode: keybind.mode,
+        };
+
+        target.insert(key_combo, keybind.command.clone());
+    }
+}
+
+fn parse_keycode(value: &str) -> KeyCode {
+    if value == "" {
+        return KeyCode::Null;
+    }
+
+    match value.to_lowercase().as_str() {
+        "enter" => KeyCode::Enter,
+        "esc" => KeyCode::Esc,
+        "left" => KeyCode::Left,
+        "right" => KeyCode::Right,
+        "up" => KeyCode::Up,
+        "down" => KeyCode::Down,
+        "tab" => KeyCode::Tab,
+        "home" => KeyCode::Home,
+        "end" => KeyCode::End,
+        "pageup" => KeyCode::PageUp,
+        "pagedown" => KeyCode::PageDown,
+        "backspace" => KeyCode::Backspace,
+        "insert" => KeyCode::Insert,
+        "delete" => KeyCode::Delete,
+        "f1" => KeyCode::F(1),
+        "f2" => KeyCode::F(2),
+        "f3" => KeyCode::F(3),
+        "f4" => KeyCode::F(4),
+        "f5" => KeyCode::F(5),
+        "f6" => KeyCode::F(6),
+        "f7" => KeyCode::F(7),
+        "f8" => KeyCode::F(8),
+        "f9" => KeyCode::F(9),
+        "f10" => KeyCode::F(10),
+        "f11" => KeyCode::F(11),
+        "f12" => KeyCode::F(12),
+        _ => KeyCode::Char(value.chars().nth(0).unwrap_or('\0')),
+    }
+}
+
 impl Keymap {
-    pub fn default_global() -> Self {
-        let keybinds = HashMap::from([
+    pub fn build_global(bindings: &Vec<KeybindConfigEntry>) -> Self {
+        let mut keybinds = HashMap::from([
             (ctrl(Char('q')), CommandKind::Quit),
             (ctrl(Char('f')), CommandKind::FindConnection),
             (ctrl(Char('o')), CommandKind::ToggleFullscreen),
@@ -101,17 +184,20 @@ impl Keymap {
             (single(KeyCode::F(5)), CommandKind::RunQuery),
         ]);
 
+        let mut double_keys_by_mode = HashMap::new();
+        add_keybinds(&mut keybinds, &mut double_keys_by_mode, bindings);
+
         Self {
             keybinds,
-            double_keys_by_mode: HashMap::new(),
+            double_keys_by_mode: double_keys_by_mode,
             buffer: Vec::new(),
             last_unresolved_key_press: None,
         }
     }
 
-    pub fn default_selection() -> Self {
+    pub fn build_selection(bindings: &Vec<KeybindConfigEntry>) -> Self {
         let mut double_keys_by_mode = HashMap::new();
-        let keybinds = HashMap::from([
+        let mut keybinds = HashMap::from([
             (single(Char('h')), CommandKind::Left),
             (single(Char('k')), CommandKind::Up),
             (single(Char('l')), CommandKind::Right),
@@ -128,6 +214,8 @@ impl Keymap {
             (shift(Char('G')), CommandKind::PageBottom),
         ]);
 
+        add_keybinds(&mut keybinds, &mut double_keys_by_mode, bindings);
+
         Self {
             keybinds,
             double_keys_by_mode: HashMap::new(),
@@ -136,13 +224,16 @@ impl Keymap {
         }
     }
 
-    pub fn default_dialog() -> Self {
-        let keybinds = HashMap::from([
+    pub fn build_dialog(bindings: &Vec<KeybindConfigEntry>) -> Self {
+        let mut keybinds = HashMap::from([
             (single(KeyCode::Esc), CommandKind::CloseDialog),
             (single(KeyCode::Enter), CommandKind::Submit),
             (ctrl(Char('c')), CommandKind::CloseDialog),
         ]);
 
+        let mut double_keys_by_mode = HashMap::new();
+        add_keybinds(&mut keybinds, &mut double_keys_by_mode, bindings);
+
         Self {
             keybinds,
             double_keys_by_mode: HashMap::new(),
@@ -151,12 +242,8 @@ impl Keymap {
         }
     }
 
-    pub fn default_connections() -> Self {
-        let mut base = Keymap::default_dialog();
-        base.keybinds
-            .insert(ctrl(Char('e')), CommandKind::EditSelectedConnection);
-        base.keybinds
-            .insert(ctrl(Char('d')), CommandKind::NewConnection);
+    pub fn build_find_dialog(bindings: &Vec<KeybindConfigEntry>) -> Self {
+        let mut base = Keymap::build_dialog(bindings);
         base.keybinds.insert(single(KeyCode::Up), CommandKind::Up);
         base.keybinds
             .insert(single(KeyCode::Down), CommandKind::Down);
@@ -166,35 +253,19 @@ impl Keymap {
         base
     }
 
-    pub fn default_editor() -> Self {
-        let mut base = Keymap::default_global();
-        base.keybinds.insert(
-            double_with_mode(
-                &mut base.double_keys_by_mode,
-                Char('j'),
-                Char('k'),
-                EditorMode::Insert,
-            ),
-            CommandKind::NormalMode,
-        );
-
-        base
+    pub fn build_editor(bindings: &Vec<KeybindConfigEntry>) -> Self {
+        Keymap::build_global(bindings)
     }
 
     pub fn resolve_event(&mut self, event: KeyEvent) -> Vec<Command> {
-        self.resolve_event_inner(event, EditorMode::Normal, true)
+        self.resolve_event_inner(event, Mode::Normal, true)
     }
 
-    pub fn resolve_event_with_mode(&mut self, event: KeyEvent, mode: EditorMode) -> Vec<Command> {
+    pub fn resolve_event_with_mode(&mut self, event: KeyEvent, mode: Mode) -> Vec<Command> {
         self.resolve_event_inner(event, mode, true)
     }
 
-    fn resolve_event_inner(
-        &mut self,
-        event: KeyEvent,
-        mode: EditorMode,
-        buffer: bool,
-    ) -> Vec<Command> {
+    fn resolve_event_inner(&mut self, event: KeyEvent, mode: Mode, buffer: bool) -> Vec<Command> {
         let modifier = if event.modifiers.is_empty() {
             None
         } else {

@@ -4,7 +4,6 @@ use std::{
 };
 
 use crossterm::event::KeyEvent;
-use edtui::EditorMode;
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
@@ -14,11 +13,11 @@ use ratatui::{
 use thousands::Separable;
 
 use crate::{
-    config::{ConnectionColor, ConnectionEntry},
+    config::{ConnectionColor, ConnectionEntry, KeymapSet},
     database::{GridCell, QueryOptions, QueryResult, QuerySorting, QueryStatus},
     keymap::Keymap,
     layout::{
-        Action, CommandKind, View,
+        Action, CommandKind, Mode, View,
         components::{
             Component,
             data_grid::DataGrid,
@@ -58,11 +57,11 @@ pub struct MainView {
 }
 
 impl MainView {
-    pub fn new() -> Self {
-        let sidebar = Sidebar::new(Keymap::default_selection());
-        let query_editor = QueryEditor::new(Keymap::default_editor());
-        let filter_bar = FilterBar::new(Keymap::default_editor());
-        let grid = DataGrid::new(Keymap::default_selection());
+    pub fn new(keymap_set: &KeymapSet) -> Self {
+        let sidebar = Sidebar::new(Keymap::build_selection(&keymap_set.selection));
+        let query_editor = QueryEditor::new(Keymap::build_editor(&keymap_set.editor));
+        let filter_bar = FilterBar::new(Keymap::build_editor(&keymap_set.editor));
+        let grid = DataGrid::new(Keymap::build_selection(&keymap_set.selection));
 
         Self {
             active_table_name: None,
@@ -79,7 +78,7 @@ impl MainView {
             query_editor: query_editor,
             filter_bar: filter_bar,
             grid: grid,
-            keymap: Keymap::default_global(),
+            keymap: Keymap::build_global(&keymap_set.global),
             active: MainPane::Query,
             status_message: None,
             is_fullscreen: false,
@@ -247,10 +246,10 @@ impl MainView {
             self.filter_bar.mode()
         };
         let mode_widget = match mode {
-            EditorMode::Normal => Paragraph::new::<&str>(" NORMAL ").bg(theme.cyan),
-            EditorMode::Insert => Paragraph::new::<&str>(" INSERT ").bg(theme.green),
-            EditorMode::Visual => Paragraph::new::<&str>(" VISUAL ").bg(theme.red),
-            EditorMode::Search => Paragraph::new::<&str>(" SEARCH ").bg(theme.yellow),
+            Mode::Normal => Paragraph::new::<&str>(" NORMAL ").bg(theme.cyan),
+            Mode::Insert => Paragraph::new::<&str>(" INSERT ").bg(theme.green),
+            Mode::Visual => Paragraph::new::<&str>(" VISUAL ").bg(theme.red),
+            Mode::Search => Paragraph::new::<&str>(" SEARCH ").bg(theme.yellow),
         };
         frame.render_widget(mode_widget, mode_area);
 

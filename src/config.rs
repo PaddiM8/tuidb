@@ -4,12 +4,16 @@ use color_eyre::eyre::Context;
 use color_eyre::eyre::Result;
 use ratatui::style::Color;
 use serde::Deserialize;
+use serde::Serialize;
 
+use crate::layout::CommandKind;
+use crate::layout::Mode;
 use crate::theme::Theme;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
     pub connections: Vec<ConnectionEntry>,
+    pub keymap: KeymapSet,
     pub theme: Option<String>,
 }
 
@@ -29,7 +33,37 @@ impl Config {
     }
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct KeymapSet {
+    pub global: Vec<KeybindConfigEntry>,
+    pub selection: Vec<KeybindConfigEntry>,
+    pub dialog: Vec<KeybindConfigEntry>,
+    pub find_dialog: Vec<KeybindConfigEntry>,
+    pub editor: Vec<KeybindConfigEntry>,
+}
+
+impl Default for KeymapSet {
+    fn default() -> Self {
+        KeymapSet {
+            global: Vec::new(),
+            selection: Vec::new(),
+            dialog: Vec::new(),
+            find_dialog: Vec::new(),
+            editor: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct KeybindConfigEntry {
+    pub binding: String,
+    #[serde(default)]
+    pub mode: Mode,
+    pub command: CommandKind,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ConnectionEntry {
     pub name: String,
     pub color: Option<ConnectionColor>,
@@ -37,7 +71,7 @@ pub struct ConnectionEntry {
     pub backend: BackendDetails,
 }
 
-#[derive(Copy, Clone, Debug, Deserialize)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ConnectionColor {
     Black,
@@ -81,7 +115,7 @@ impl ConnectionColor {
     }
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum BackendDetails {
     Sqlite(SqliteConnectionDetails),
@@ -89,13 +123,13 @@ pub enum BackendDetails {
     SqlServer(SqlServerConnectionDetails),
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SqliteConnectionDetails {
     pub path: String,
     pub is_readonly: Option<bool>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PostgresConnectionDetails {
     pub host: String,
     pub port: Option<u16>,
@@ -103,7 +137,7 @@ pub struct PostgresConnectionDetails {
     pub password: String,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SqlServerConnectionDetails {
     pub host: String,
     pub port: u16,

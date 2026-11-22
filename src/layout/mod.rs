@@ -10,6 +10,18 @@ pub mod dialogs;
 pub mod main_view;
 pub mod start_view;
 
+#[derive(
+    Copy, Clone, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum Mode {
+    #[default]
+    Normal,
+    Insert,
+    Visual,
+    Search,
+}
+
 pub trait View {
     fn handle_key(&mut self, event: KeyEvent) -> Vec<Action>;
 }
@@ -20,7 +32,8 @@ pub struct Command {
     pub multiplier: u32,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum CommandKind {
     Unresolved(Vec<KeyEvent>),
 
@@ -58,8 +71,6 @@ pub enum CommandKind {
     // Dialogs
     CloseDialog,
     FindConnection,
-    EditSelectedConnection,
-    NewConnection,
 }
 
 #[derive(Clone, Debug)]

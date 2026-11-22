@@ -54,12 +54,15 @@ pub struct App {
 
 impl App {
     pub fn new(config: Config, theme: Theme, action_tx: UnboundedSender<Action>) -> Self {
+        let keymap = Keymap::build_global(&config.keymap.global);
+        let connections_keymap = Keymap::build_find_dialog(&config.keymap.find_dialog);
+
         Self {
             should_quit: false,
             config: config,
             theme: theme,
             action_tx: action_tx,
-            keymap: Keymap::default_global(),
+            keymap: keymap,
             clipboard: Clipboard::new().ok(),
             main_views: HashMap::new(),
             connections: HashMap::new(),
@@ -67,7 +70,7 @@ impl App {
             start_view: StartView::new(),
             active_view: ActiveView::Start,
             active_dialog: ActiveDialog::Connections,
-            connections_dialog: ConnectionsDialog::new(Keymap::default_connections()),
+            connections_dialog: ConnectionsDialog::new(connections_keymap),
         }
     }
 
@@ -162,6 +165,7 @@ impl App {
                 let tx = self.action_tx.clone();
                 tokio::spawn(async move {
                     tokio::time::sleep(Duration::from_millis(750)).await;
+                    // TODO: Implement this
                     let _ = tx.send(action);
                 });
             }
@@ -183,7 +187,7 @@ impl App {
 
                 let connection_key = ConnectionKey(connection_name.clone(), String::new());
                 self.main_views
-                    .insert(connection_key.clone(), MainView::new());
+                    .insert(connection_key.clone(), MainView::new(&self.config.keymap));
                 self.active_main_view_key = Some(connection_key.clone());
                 self.set_view(ActiveView::Main);
 
