@@ -8,7 +8,7 @@ use tokio::{sync::mpsc::UnboundedSender, task::JoinHandle};
 use crate::{
     config::Config,
     database::{DatabaseConnection, QueryOptions, QueryStatus},
-    keymap::Keymap,
+    keymap::{DUAL_KEYBIND_TIMEOUT_MS, Keymap},
     layout::{
         Action, Command,
         CommandKind::{self},
@@ -192,7 +192,7 @@ impl App {
             Action::WaitForNextKey(fallback) => {
                 let tx = self.action_tx.clone();
                 self.wait_for_next_key_handle = Some(tokio::spawn(async move {
-                    tokio::time::sleep(Duration::from_millis(750)).await;
+                    tokio::time::sleep(Duration::from_millis(DUAL_KEYBIND_TIMEOUT_MS + 1)).await;
                     let _ = tx.send(Action::HandleCommand(fallback));
                 }));
             }

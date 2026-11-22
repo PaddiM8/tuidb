@@ -13,6 +13,8 @@ use crate::{
     layout::{Command, CommandKind, Mode},
 };
 
+pub const DUAL_KEYBIND_TIMEOUT_MS: u64 = 750;
+
 #[derive(Clone, Hash, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct KeyCombo {
     modifiers: Option<KeyModifiers>,
@@ -272,7 +274,7 @@ impl Keymap {
         // Clear the buffer if the last unresolved key press was too long ago to count
         if self
             .last_unresolved_key_press
-            .is_some_and(|i| i.elapsed() > Duration::from_millis(750))
+            .is_some_and(|i| i.elapsed() > Duration::from_millis(DUAL_KEYBIND_TIMEOUT_MS))
         {
             self.buffer.clear();
             self.last_unresolved_key_press = None;
