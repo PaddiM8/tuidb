@@ -14,7 +14,7 @@ use tui_input::{Input, backend::crossterm::EventHandler};
 
 use crate::{
     keymap::Keymap,
-    layout::{Action, CommandKind, components::Component, dialogs::build_dialog_action},
+    layout::{Action, Command, CommandKind, components::Component, dialogs::build_dialog_action},
     theme::Theme,
 };
 
@@ -146,26 +146,31 @@ impl Component for FindDialog {
     type Output = Action;
 
     fn handle_key(&mut self, event: KeyEvent) -> Vec<Action> {
-        let mut actions = Vec::new();
-        for command in self.keymap.resolve_event(event) {
-            let base_action = build_dialog_action(&command.kind);
-            if let Some(base_action) = base_action {
-                actions.push(base_action);
-                continue;
-            }
+        self.keymap
+            .resolve_event(event)
+            .into_iter()
+            .filter_map(|c| self.handle_command(c))
+            .flatten()
+            .collect()
+    }
 
-            match command.kind {
-                CommandKind::Unresolved(events) => {
-                    for event in events {
-                        self.input.handle_event(&Event::Key(event));
-                    }
-                }
-                CommandKind::Up => self.state.select_previous(),
-                CommandKind::Down => self.state.select_next(),
-                _ => (),
-            };
+    fn handle_command(&mut self, command: Command) -> Option<Vec<Action>> {
+        let base_action = build_dialog_action(&command.kind);
+        if let Some(base_action) = base_action {
+            return Some(vec![base_action]);
         }
 
-        actions
+        match command.kind {
+            CommandKind::Unresolved(events) => {
+                for event in events {
+                    self.input.handle_event(&Event::Key(event));
+                }
+            }
+            CommandKind::Up => self.state.select_previous(),
+            CommandKind::Down => self.state.select_next(),
+            _ => return None,
+        };
+
+        Some(Vec::new())
     }
 }

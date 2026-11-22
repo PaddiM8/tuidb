@@ -193,8 +193,22 @@ impl DataGrid {
             self.state.select_next_column();
         }
     }
+}
 
-    fn handle_command(&mut self, command: Command) -> Option<Action> {
+impl Component for DataGrid {
+    type Output = Action;
+
+    fn handle_key(&mut self, event: KeyEvent) -> Vec<Action> {
+        self.keymap
+            .resolve_event(event)
+            .into_iter()
+            .filter_map(|c| self.handle_command(c))
+            .flatten()
+            .collect()
+    }
+
+    fn handle_command(&mut self, command: Command) -> Option<Vec<Action>> {
+        let mut actions = Vec::new();
         match command.kind {
             CommandKind::Left => {
                 for _ in 0..command.multiplier {
@@ -239,17 +253,17 @@ impl DataGrid {
             }
             CommandKind::Copy => match &self.status {
                 Some(QueryStatus::ConnectionError(message)) => {
-                    return Some(Action::Copy(message.clone()));
+                    actions.push(Action::Copy(message.clone()));
                 }
                 Some(QueryStatus::QueryError(message)) => {
-                    return Some(Action::Copy(message.clone()));
+                    actions.push(Action::Copy(message.clone()));
                 }
                 Some(QueryStatus::Loading) => (),
                 None => (),
             },
             CommandKind::Sort => {
                 let Some(column_to_sort) = &self.selected_column_name else {
-                    return None;
+                    return Some(Vec::new());
                 };
 
                 match &self.sorting {
@@ -263,7 +277,7 @@ impl DataGrid {
                         };
 
                         self.sorting = Some(new_sorting.clone());
-                        return Some(Action::Sort(Some(new_sorting)));
+                        actions.push(Action::Sort(Some(new_sorting)));
                     }
                     // Same column: Descending -> None
                     // New column: Descending -> Descending
@@ -275,35 +289,21 @@ impl DataGrid {
                         };
 
                         self.sorting = new_sorting.clone();
-                        return Some(Action::Sort(new_sorting));
+                        actions.push(Action::Sort(new_sorting));
                     }
                     // None -> Ascending
                     None => {
                         let new_sorting = QuerySorting::Ascending(column_to_sort.to_string());
 
                         self.sorting = Some(new_sorting.clone());
-                        return Some(Action::Sort(Some(new_sorting)));
+                        actions.push(Action::Sort(Some(new_sorting)));
                     }
                 }
             }
-            _ => (),
+            _ => return None,
         }
 
-        None
-    }
-}
-
-impl Component for DataGrid {
-    type Output = Action;
-
-    fn handle_key(&mut self, event: KeyEvent) -> Vec<Action> {
-        self.keymap
-            .resolve_event(event)
-            .into_iter()
-            .map(|c| self.handle_command(c))
-            .filter(|a| a.is_some())
-            .map(|a| a.unwrap())
-            .collect()
+        Some(actions)
     }
 }
 

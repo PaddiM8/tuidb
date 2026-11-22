@@ -3,7 +3,7 @@ use ratatui::{prelude::*, widgets::*};
 
 use crate::{
     keymap::Keymap,
-    layout::{CommandKind, components::Component},
+    layout::{Command, CommandKind, components::Component},
     theme::Theme,
 };
 
@@ -62,28 +62,35 @@ impl Component for Sidebar {
     type Output = SidebarEvent;
 
     fn handle_key(&mut self, event: KeyEvent) -> Vec<SidebarEvent> {
+        self.keymap
+            .resolve_event(event)
+            .into_iter()
+            .filter_map(|c| self.handle_command(c))
+            .flatten()
+            .collect()
+    }
+
+    fn handle_command(&mut self, command: Command) -> Option<Vec<SidebarEvent>> {
         let mut actions = Vec::new();
-        for command in self.keymap.resolve_event(event) {
-            match command.kind {
-                CommandKind::Down => {
-                    for _ in 0..command.multiplier {
-                        self.state.select_next();
-                    }
+        match command.kind {
+            CommandKind::Down => {
+                for _ in 0..command.multiplier {
+                    self.state.select_next();
                 }
-                CommandKind::Up => {
-                    for _ in 0..command.multiplier {
-                        self.state.select_previous();
-                    }
-                }
-                CommandKind::Submit => {
-                    if let Some(index) = self.state.selected() {
-                        actions.push(SidebarEvent::SubmittedIndex(index));
-                    }
-                }
-                _ => (),
             }
+            CommandKind::Up => {
+                for _ in 0..command.multiplier {
+                    self.state.select_previous();
+                }
+            }
+            CommandKind::Submit => {
+                if let Some(index) = self.state.selected() {
+                    actions.push(SidebarEvent::SubmittedIndex(index));
+                }
+            }
+            _ => return None,
         }
 
-        actions
+        Some(actions)
     }
 }

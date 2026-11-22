@@ -3,7 +3,7 @@ use std::{collections::HashMap, time::Duration};
 use arboard::Clipboard;
 use crossterm::event::KeyEvent;
 use ratatui::{Frame, widgets::Block};
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::{sync::mpsc::UnboundedSender, task::JoinHandle};
 
 use crate::{
     config::Config,
@@ -11,7 +11,7 @@ use crate::{
     keymap::Keymap,
     layout::{
         Action, Command,
-        CommandKind::{self, Unresolved},
+        CommandKind::{self},
         DbEvent, View,
         components::{Component, query_editor::QueryEditor},
         dialogs::connections_dialog::ConnectionsDialog,
@@ -41,6 +41,7 @@ pub struct App {
     config: Config,
     theme: Theme,
     action_tx: UnboundedSender<Action>,
+    wait_for_next_key_handle: Option<JoinHandle<()>>,
     keymap: Keymap,
     clipboard: Option<Clipboard>,
     active_view: ActiveView,
@@ -62,6 +63,7 @@ impl App {
             config: config,
             theme: theme,
             action_tx: action_tx,
+            wait_for_next_key_handle: None,
             keymap: keymap,
             clipboard: Clipboard::new().ok(),
             main_views: HashMap::new(),
@@ -80,6 +82,11 @@ impl App {
     }
 
     pub fn handle_key(&mut self, event: KeyEvent) {
+        if let Some(handle) = &self.wait_for_next_key_handle {
+            handle.abort();
+            self.wait_for_next_key_handle = None;
+        }
+
         let actions = if let ActiveDialog::Connections = self.active_dialog {
             self.connections_dialog.handle_key(event)
         } else if let ActiveView::Start = self.active_view {
@@ -106,6 +113,27 @@ impl App {
             if let Some(built_action) = build_action(command) {
                 self.handle_action(built_action);
             }
+        }
+    }
+
+    pub fn handle_command(&mut self, command: Command) {
+        let actions = if let ActiveDialog::Connections = self.active_dialog {
+            self.connections_dialog.handle_command(command.clone())
+        } else if let ActiveView::Start = self.active_view {
+            self.start_view.handle_command(command.clone())
+        } else if let ActiveView::Main = self.active_view {
+            self.active_main_view_mut()
+                .and_then(|main_view| main_view.handle_command(command.clone()))
+        } else {
+            None
+        };
+
+        if let Some(actions) = actions {
+            for action in actions {
+                self.handle_action(action);
+            }
+        } else if let Some(action) = build_action(command) {
+            self.handle_action(action);
         }
     }
 
@@ -161,14 +189,17 @@ impl App {
                     }
                 }
             }
-            Action::WaitForNextKey(last_key) => {
+            Action::WaitForNextKey(fallback) => {
                 let tx = self.action_tx.clone();
-                tokio::spawn(async move {
+                self.wait_for_next_key_handle = Some(tokio::spawn(async move {
                     tokio::time::sleep(Duration::from_millis(750)).await;
-                    // TODO: Implement this
-                    let _ = tx.send(action);
-                });
+                    let _ = tx.send(Action::HandleCommand(fallback));
+                }));
             }
+            Action::HandleCommand(command_kind) => self.handle_command(Command {
+                kind: command_kind,
+                multiplier: 1,
+            }),
             Action::CloseDialog => self.set_dialog(ActiveDialog::None),
             Action::OpenConnectionsDialog => {
                 self.connections_dialog.reset();

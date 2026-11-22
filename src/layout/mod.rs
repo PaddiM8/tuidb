@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use crossterm::event::{KeyCode, KeyEvent};
 
 use crate::{
@@ -24,6 +26,8 @@ pub enum Mode {
 
 pub trait View {
     fn handle_key(&mut self, event: KeyEvent) -> Vec<Action>;
+
+    fn handle_command(&mut self, command: Command) -> Option<Vec<Action>>;
 }
 
 #[derive(Clone, Debug)]
@@ -39,7 +43,9 @@ pub enum CommandKind {
 
     // Global
     Quit,
-    WaitForNextKey(KeyCode),
+    #[serde(skip)]
+    WaitForNextKey(Box<CommandKind>),
+    RawKey(KeyCode),
 
     // Main
     RunQuery,
@@ -77,7 +83,8 @@ pub enum CommandKind {
 pub enum Action {
     // Global
     Quit,
-    WaitForNextKey(KeyCode),
+    WaitForNextKey(CommandKind),
+    HandleCommand(CommandKind),
     Copy(String),
 
     // Main

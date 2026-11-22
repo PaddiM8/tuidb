@@ -1,11 +1,8 @@
 use std::{
     collections::{HashMap, HashSet},
-    fs,
-    path::Path,
     time::{Duration, Instant},
 };
 
-use color_eyre::eyre::{Context, Result};
 use crossterm::event::{
     KeyCode::{self, Char},
     KeyEvent, KeyModifiers,
@@ -307,11 +304,25 @@ impl Keymap {
             && let Some(double_keys) = self.double_keys_by_mode.get(&mode)
             && double_keys.contains(&event)
         {
-            self.buffer.push(event);
             self.last_unresolved_key_press = Some(Instant::now());
+            self.buffer.push(event);
+
+            let key_combo_as_single = KeyCombo {
+                modifiers: None,
+                key: event.code,
+                second_key: None,
+                mode: mode,
+            };
+
+            let fallback =
+                if let Some(fallback_command) = self.keybinds.get(&key_combo_as_single).cloned() {
+                    fallback_command
+                } else {
+                    CommandKind::RawKey(event.code)
+                };
 
             return vec![Command {
-                kind: CommandKind::WaitForNextKey(event.code),
+                kind: CommandKind::WaitForNextKey(Box::new(fallback)),
                 multiplier: 1,
             }];
         }

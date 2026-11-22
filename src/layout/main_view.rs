@@ -17,7 +17,7 @@ use crate::{
     database::{GridCell, QueryOptions, QueryResult, QuerySorting, QueryStatus},
     keymap::Keymap,
     layout::{
-        Action, CommandKind, Mode, View,
+        Action, Command, CommandKind, Mode, View,
         components::{
             Component,
             data_grid::DataGrid,
@@ -115,22 +115,40 @@ impl MainView {
         actions
     }
 
+    fn handle_command_in_component(&mut self, command: Command) -> Option<Vec<Action>> {
+        match self.active {
+            MainPane::Sidebar => None,
+            MainPane::Query => {
+                if self.is_full_editor() {
+                    self.query_editor.handle_command(command)
+                } else {
+                    self.filter_bar.handle_command(command)
+                }
+            }
+            MainPane::Grid => self.grid.handle_command(command),
+        }
+    }
+
     fn handle_key_in_sidebar(&mut self, event: KeyEvent) -> Vec<Action> {
         let mut actions = Vec::new();
-        for action in self.sidebar.handle_key(event) {
-            match action {
-                SidebarEvent::SubmittedIndex(index) => {
-                    self.active = MainPane::Grid;
-                    self.grid.clear_selection();
-
-                    if let Some(action) = self.tables.get(index).cloned().map(Action::OpenTable) {
-                        actions.push(action)
-                    }
-                }
+        for command in self.sidebar.handle_key(event) {
+            if let Some(action) = self.handle_command_in_sidebar(command) {
+                actions.push(action);
             }
         }
 
         actions
+    }
+
+    fn handle_command_in_sidebar(&mut self, command: SidebarEvent) -> Option<Action> {
+        match command {
+            SidebarEvent::SubmittedIndex(index) => {
+                self.active = MainPane::Grid;
+                self.grid.clear_selection();
+
+                self.tables.get(index).cloned().map(Action::OpenTable)
+            }
+        }
     }
 
     pub fn table_name(&self) -> Option<&String> {
@@ -353,39 +371,55 @@ impl MainView {
 
 impl View for MainView {
     fn handle_key(&mut self, event: KeyEvent) -> Vec<Action> {
-        let mut actions = Vec::new();
-        for command in self.keymap.resolve_event(event) {
-            match command.kind {
-                CommandKind::Unresolved(events) => actions.extend(
-                    events
-                        .into_iter()
-                        .flat_map(|e| self.handle_key_in_component(e)),
-                ),
-                CommandKind::Quit => actions.push(Action::Quit),
-                CommandKind::ToggleFullscreen => self.is_fullscreen = !self.is_fullscreen,
-                CommandKind::ToggleQueryMode => {
-                    if self.active_table_name.is_none() {
-                        self.active_table_name = self
-                            .last_active_table_name
-                            .clone()
-                            .or(self.tables.first().cloned());
+        let commands = self.keymap.resolve_event(event);
+        if commands.len() > 0 {
+            commands
+                .into_iter()
+                .flat_map(|c| {
+                    if let Some(actions) = self.handle_command(c) {
+                        actions
                     } else {
-                        self.active_table_name = None;
-                        self.sidebar.deselect();
-                        self.active = MainPane::Query;
+                        Vec::new()
                     }
+                })
+                .collect()
+        } else {
+            self.handle_key_in_component(event)
+        }
+    }
+
+    fn handle_command(&mut self, command: Command) -> Option<Vec<Action>> {
+        let mut actions = Vec::new();
+        match command.kind {
+            CommandKind::Unresolved(events) => actions.extend(
+                events
+                    .into_iter()
+                    .flat_map(|e| self.handle_key_in_component(e)),
+            ),
+            CommandKind::Quit => actions.push(Action::Quit),
+            CommandKind::ToggleFullscreen => self.is_fullscreen = !self.is_fullscreen,
+            CommandKind::ToggleQueryMode => {
+                if self.active_table_name.is_none() {
+                    self.active_table_name = self
+                        .last_active_table_name
+                        .clone()
+                        .or(self.tables.first().cloned());
+                } else {
+                    self.active_table_name = None;
+                    self.sidebar.deselect();
+                    self.active = MainPane::Query;
                 }
-                CommandKind::FocusLeft => {
-                    self.sidebar.focus();
-                    self.active = MainPane::Sidebar;
-                }
-                CommandKind::FocusUp => self.active = MainPane::Query,
-                CommandKind::FocusRight => self.active = MainPane::Query,
-                CommandKind::FocusDown => self.active = MainPane::Grid,
-                _ => actions.extend(self.handle_key_in_component(event)),
             }
+            CommandKind::FocusLeft => {
+                self.sidebar.focus();
+                self.active = MainPane::Sidebar;
+            }
+            CommandKind::FocusUp => self.active = MainPane::Query,
+            CommandKind::FocusRight => self.active = MainPane::Query,
+            CommandKind::FocusDown => self.active = MainPane::Grid,
+            _ => return self.handle_command_in_component(command),
         }
 
-        actions
+        Some(actions)
     }
 }

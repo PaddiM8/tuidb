@@ -4,7 +4,9 @@ use ratatui::{Frame, layout::Rect, widgets::Block};
 use crate::{
     config::ConnectionEntry,
     keymap::Keymap,
-    layout::{Action, CommandKind, components::Component, dialogs::find_dialog::FindDialog},
+    layout::{
+        Action, Command, CommandKind, components::Component, dialogs::find_dialog::FindDialog,
+    },
     theme::Theme,
 };
 
@@ -43,23 +45,30 @@ impl Component for ConnectionsDialog {
     type Output = Action;
 
     fn handle_key(&mut self, event: KeyEvent) -> Vec<Action> {
+        self.keymap
+            .resolve_event(event)
+            .into_iter()
+            .filter_map(|c| self.handle_command(c))
+            .flatten()
+            .collect()
+    }
+
+    fn handle_command(&mut self, command: Command) -> Option<Vec<Action>> {
         let mut actions = Vec::new();
-        for command in self.keymap.resolve_event(event) {
-            match command.kind {
-                CommandKind::Unresolved(events) => {
-                    events
-                        .into_iter()
-                        .flat_map(|e| self.base_dialog.handle_key(e));
-                }
-                CommandKind::Submit
-                    if let Some(connection_name) = self.base_dialog.selected_value() =>
-                {
-                    actions.push(Action::OpenConnection(connection_name.to_string()));
-                }
-                _ => (),
+        match command.kind {
+            CommandKind::Unresolved(events) => actions.extend(
+                events
+                    .into_iter()
+                    .flat_map(|e| self.base_dialog.handle_key(e)),
+            ),
+            CommandKind::Submit
+                if let Some(connection_name) = self.base_dialog.selected_value() =>
+            {
+                actions.push(Action::OpenConnection(connection_name.to_string()));
             }
+            _ => return None,
         }
 
-        actions
+        Some(actions)
     }
 }
