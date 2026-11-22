@@ -8,7 +8,7 @@ use crossterm::event::{
     KeyEvent, KeyModifiers,
 };
 
-use crate::layout::Command;
+use crate::layout::{Command, CommandKind};
 
 #[derive(Clone, Hash, PartialEq, Eq)]
 pub struct KeyCombo {
@@ -41,8 +41,8 @@ fn shift(key: KeyCode) -> KeyCombo {
     }
 }
 
-fn double(set: &mut HashSet<KeyCode>, key: KeyCode, second_key: KeyCode) -> KeyCombo {
-    set.insert(key);
+fn double(set: &mut HashSet<KeyEvent>, key: KeyCode, second_key: KeyCode) -> KeyCombo {
+    set.insert(KeyEvent::from(key));
 
     KeyCombo {
         modifiers: None,
@@ -52,91 +52,93 @@ fn double(set: &mut HashSet<KeyCode>, key: KeyCode, second_key: KeyCode) -> KeyC
 }
 
 #[derive(Clone)]
-struct UnresolvedKey(KeyCode, Instant);
-
-#[derive(Clone)]
 pub struct Keymap {
-    keybinds: HashMap<KeyCombo, Command>,
-    double_keys: HashSet<KeyCode>,
-    unresolved_key: Option<UnresolvedKey>,
+    keybinds: HashMap<KeyCombo, CommandKind>,
+    double_keys: HashSet<KeyEvent>,
+    buffer: Vec<KeyEvent>,
+    last_unresolved_key_press: Option<Instant>,
 }
 
 impl Keymap {
     pub fn default_global() -> Self {
         let keybinds = HashMap::from([
-            (ctrl(Char('q')), Command::Quit),
-            (ctrl(Char('f')), Command::FindConnection),
-            (ctrl(Char('o')), Command::ToggleFullscreen),
-            (ctrl(Char('h')), Command::FocusLeft),
-            (ctrl(Char('k')), Command::FocusUp),
-            (ctrl(Char('l')), Command::FocusRight),
-            (ctrl(Char('j')), Command::FocusDown),
-            (ctrl(Char('n')), Command::ToggleQueryMode),
-            (ctrl(KeyCode::Left), Command::FocusLeft),
-            (ctrl(KeyCode::Up), Command::FocusUp),
-            (ctrl(KeyCode::Right), Command::FocusRight),
-            (ctrl(KeyCode::Down), Command::FocusDown),
-            (ctrl(KeyCode::Enter), Command::RunQuery),
-            (single(KeyCode::F(5)), Command::RunQuery),
+            (ctrl(Char('q')), CommandKind::Quit),
+            (ctrl(Char('f')), CommandKind::FindConnection),
+            (ctrl(Char('o')), CommandKind::ToggleFullscreen),
+            (ctrl(Char('h')), CommandKind::FocusLeft),
+            (ctrl(Char('k')), CommandKind::FocusUp),
+            (ctrl(Char('l')), CommandKind::FocusRight),
+            (ctrl(Char('j')), CommandKind::FocusDown),
+            (ctrl(Char('n')), CommandKind::ToggleQueryMode),
+            (ctrl(KeyCode::Left), CommandKind::FocusLeft),
+            (ctrl(KeyCode::Up), CommandKind::FocusUp),
+            (ctrl(KeyCode::Right), CommandKind::FocusRight),
+            (ctrl(KeyCode::Down), CommandKind::FocusDown),
+            (ctrl(KeyCode::Enter), CommandKind::RunQuery),
+            (single(KeyCode::F(5)), CommandKind::RunQuery),
         ]);
 
         Self {
             keybinds,
             double_keys: HashSet::new(),
-            unresolved_key: None,
+            buffer: Vec::new(),
+            last_unresolved_key_press: None,
         }
     }
 
     pub fn default_selection() -> Self {
         let mut double_set = HashSet::new();
         let keybinds = HashMap::from([
-            (single(Char('h')), Command::Left),
-            (single(Char('k')), Command::Up),
-            (single(Char('l')), Command::Right),
-            (single(Char('j')), Command::Down),
-            (single(Char('y')), Command::Copy),
-            (single(Char('s')), Command::Sort),
-            (single(KeyCode::Enter), Command::Submit),
-            (ctrl(Char('u')), Command::HalfPageUp),
-            (ctrl(Char('d')), Command::HalfPageDown),
+            (single(Char('h')), CommandKind::Left),
+            (single(Char('k')), CommandKind::Up),
+            (single(Char('l')), CommandKind::Right),
+            (single(Char('j')), CommandKind::Down),
+            (single(Char('y')), CommandKind::Copy),
+            (single(Char('s')), CommandKind::Sort),
+            (single(KeyCode::Enter), CommandKind::Submit),
+            (ctrl(Char('u')), CommandKind::HalfPageUp),
+            (ctrl(Char('d')), CommandKind::HalfPageDown),
             (
                 double(&mut double_set, Char('g'), Char('g')),
-                Command::PageTop,
+                CommandKind::PageTop,
             ),
-            (shift(Char('G')), Command::PageBottom),
+            (shift(Char('G')), CommandKind::PageBottom),
         ]);
 
         Self {
             keybinds,
             double_keys: double_set,
-            unresolved_key: None,
+            buffer: Vec::new(),
+            last_unresolved_key_press: None,
         }
     }
 
     pub fn default_dialog() -> Self {
         let keybinds = HashMap::from([
-            (single(KeyCode::Esc), Command::CloseDialog),
-            (single(KeyCode::Enter), Command::Submit),
-            (ctrl(Char('c')), Command::CloseDialog),
+            (single(KeyCode::Esc), CommandKind::CloseDialog),
+            (single(KeyCode::Enter), CommandKind::Submit),
+            (ctrl(Char('c')), CommandKind::CloseDialog),
         ]);
 
         Self {
             keybinds,
             double_keys: HashSet::new(),
-            unresolved_key: None,
+            buffer: Vec::new(),
+            last_unresolved_key_press: None,
         }
     }
 
     pub fn default_connections() -> Self {
         let mut base = Keymap::default_dialog();
         base.keybinds
-            .insert(ctrl(Char('e')), Command::EditSelectedConnection);
+            .insert(ctrl(Char('e')), CommandKind::EditSelectedConnection);
         base.keybinds
-            .insert(ctrl(Char('d')), Command::NewConnection);
-        base.keybinds.insert(single(KeyCode::Up), Command::Up);
-        base.keybinds.insert(single(KeyCode::Down), Command::Down);
-        base.keybinds.insert(ctrl(Char('p')), Command::Up);
-        base.keybinds.insert(ctrl(Char('n')), Command::Down);
+            .insert(ctrl(Char('d')), CommandKind::NewConnection);
+        base.keybinds.insert(single(KeyCode::Up), CommandKind::Up);
+        base.keybinds
+            .insert(single(KeyCode::Down), CommandKind::Down);
+        base.keybinds.insert(ctrl(Char('p')), CommandKind::Up);
+        base.keybinds.insert(ctrl(Char('n')), CommandKind::Down);
 
         base
     }
@@ -148,9 +150,35 @@ impl Keymap {
             Some(event.modifiers)
         };
 
-        if modifier.is_none() && self.double_keys.contains(&event.code) {
+        if self
+            .last_unresolved_key_press
+            .is_some_and(|i| i.elapsed() > Duration::from_millis(750))
+        {
+            self.buffer.clear();
+            self.last_unresolved_key_press = None;
+        }
+
+        if modifier.is_none() && event.code.as_char().is_some_and(|c| c.is_ascii_digit()) {
+            self.buffer.push(event);
+            self.last_unresolved_key_press = Some(Instant::now());
+            return None;
+        }
+
+        let digits: String = self
+            .buffer
+            .iter()
+            .take_while(|e| e.code.as_char().is_some_and(|c| c.is_ascii_digit()))
+            .map(|e| e.code.as_char().unwrap())
+            .collect();
+        let other: Option<&KeyEvent> = self.buffer.iter().skip(digits.len()).last();
+
+        if other.is_none() && self.double_keys.contains(&event) {
+            self.buffer.push(event);
+            self.last_unresolved_key_press = Some(Instant::now());
+
+            return None;
             // TODO: After the duration has passed and no second key was pressed, asynchronously trigger the key press
-            if let Some(unresolved_key) = &self.unresolved_key
+            /*if let Some(unresolved_key) = &self.unresolved_key
                 && unresolved_key.1.elapsed() < Duration::from_millis(750)
             {
                 let key_combo = KeyCombo {
@@ -162,15 +190,33 @@ impl Keymap {
                 return self.keybinds.get(&key_combo).cloned();
             } else {
                 self.unresolved_key = Some(UnresolvedKey(event.code.clone(), Instant::now()));
-            }
+            }*/
         }
 
-        let key_combo = KeyCombo {
-            modifiers: modifier,
-            key: event.code,
-            second_key: None,
+        let key_combo = if let Some(other) = other {
+            KeyCombo {
+                modifiers: modifier,
+                key: other.code,
+                second_key: Some(event.code),
+            }
+        } else {
+            KeyCombo {
+                modifiers: modifier,
+                key: event.code,
+                second_key: None,
+            }
         };
 
-        self.keybinds.get(&key_combo).cloned()
+        self.last_unresolved_key_press = None;
+        self.buffer.clear();
+
+        if let Some(kind) = self.keybinds.get(&key_combo).cloned() {
+            Some(Command {
+                kind: kind,
+                multiplier: digits.parse().unwrap_or(1),
+            })
+        } else {
+            None
+        }
     }
 }

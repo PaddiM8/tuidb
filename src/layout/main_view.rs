@@ -18,7 +18,7 @@ use crate::{
     database::{GridCell, QueryOptions, QueryResult, QuerySorting, QueryStatus},
     keymap::Keymap,
     layout::{
-        Action, Command, View,
+        Action, CommandKind, View,
         components::{
             Component,
             data_grid::DataGrid,
@@ -338,14 +338,17 @@ impl MainView {
 
 impl View for MainView {
     fn handle_key(&mut self, event: KeyEvent) -> Option<Action> {
-        let command = self.keymap.resolve_event(event);
-        if let Some(Command::Quit) = command {
+        let Some(command) = self.keymap.resolve_event(event) else {
+            return self.handle_key_in_component(event);
+        };
+
+        if let CommandKind::Quit = command.kind {
             return Some(Action::Quit);
         }
 
-        match command {
-            Some(Command::ToggleFullscreen) => self.is_fullscreen = !self.is_fullscreen,
-            Some(Command::ToggleQueryMode) => {
+        match command.kind {
+            CommandKind::ToggleFullscreen => self.is_fullscreen = !self.is_fullscreen,
+            CommandKind::ToggleQueryMode => {
                 if self.active_table_name.is_none() {
                     self.active_table_name = self
                         .last_active_table_name
@@ -357,13 +360,13 @@ impl View for MainView {
                     self.active = MainPane::Query;
                 }
             }
-            Some(Command::FocusLeft) => {
+            CommandKind::FocusLeft => {
                 self.sidebar.focus();
                 self.active = MainPane::Sidebar;
             }
-            Some(Command::FocusUp) => self.active = MainPane::Query,
-            Some(Command::FocusRight) => self.active = MainPane::Query,
-            Some(Command::FocusDown) => self.active = MainPane::Grid,
+            CommandKind::FocusUp => self.active = MainPane::Query,
+            CommandKind::FocusRight => self.active = MainPane::Query,
+            CommandKind::FocusDown => self.active = MainPane::Grid,
             _ => return self.handle_key_in_component(event),
         }
 

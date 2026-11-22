@@ -11,7 +11,7 @@ use ratatui_table::{Cell, Row, Table, TableState};
 use crate::{
     database::{GridCell, QuerySorting, QueryStatus},
     keymap::Keymap,
-    layout::{Action, Command, components::Component},
+    layout::{Action, CommandKind, components::Component},
     theme::Theme,
 };
 
@@ -172,71 +172,100 @@ impl DataGrid {
     pub fn set_status(&mut self, status: Option<QueryStatus>) {
         self.status = status;
     }
+
+    fn focus_left(&mut self) {
+        if let Some(selected_column) = self.state.selected_column()
+            && selected_column == 0
+        {
+            self.horizontal_scroll = self.horizontal_scroll.saturating_sub(1);
+        } else {
+            self.state.select_previous_column();
+        }
+    }
+
+    fn focus_right(&mut self) {
+        if let Some(selected_column) = self.state.selected_column()
+            && selected_column == self.visible_column_count - 1
+        {
+            self.horizontal_scroll = (self.horizontal_scroll + 1)
+                .min(self.total_column_count - self.visible_column_count);
+        } else {
+            self.state.select_next_column();
+        }
+    }
 }
 
 impl Component for DataGrid {
     type Output = Action;
 
     fn handle_key(&mut self, event: KeyEvent) -> Option<Action> {
-        match self.keymap.resolve_event(event) {
-            Some(Command::Left) => {
-                if let Some(selected_column) = self.state.selected_column()
-                    && selected_column == 0
-                {
-                    self.horizontal_scroll = self.horizontal_scroll.saturating_sub(1);
-                } else {
-                    self.state.select_previous_column();
+        let Some(command) = self.keymap.resolve_event(event) else {
+            return None;
+        };
+
+        match command.kind {
+            CommandKind::Left => {
+                for _ in 0..command.multiplier {
+                    self.focus_left();
                 }
 
                 None
             }
-            Some(Command::Down) => {
-                self.state.select_next();
-                None
-            }
-            Some(Command::Right) => {
-                if let Some(selected_column) = self.state.selected_column()
-                    && selected_column == self.visible_column_count - 1
-                {
-                    self.horizontal_scroll = (self.horizontal_scroll + 1)
-                        .min(self.total_column_count - self.visible_column_count);
-                } else {
-                    self.state.select_next_column();
+            CommandKind::Down => {
+                for _ in 0..command.multiplier {
+                    self.state.select_next();
                 }
 
                 None
             }
-            Some(Command::Up) => {
-                self.state.select_previous();
+            CommandKind::Right => {
+                for _ in 0..command.multiplier {
+                    self.focus_right();
+                }
+
                 None
             }
-            Some(Command::HalfPageDown) => {
-                let offset = self.state.selected().unwrap_or(0) as u16 + self.rendered_height / 2;
-                self.state
-                    .select(Some((offset as usize).min(self.row_count)));
+            CommandKind::Up => {
+                for _ in 0..command.multiplier {
+                    self.state.select_previous();
+                }
+
                 None
             }
-            Some(Command::HalfPageUp) => {
-                let offset =
-                    self.state.selected().unwrap_or(0) as i32 - self.rendered_height as i32 / 2;
-                self.state.select(Some(offset.max(0) as usize));
+            CommandKind::HalfPageDown => {
+                for _ in 0..command.multiplier {
+                    let offset =
+                        self.state.selected().unwrap_or(0) as u16 + self.rendered_height / 2;
+                    self.state
+                        .select(Some((offset as usize).min(self.row_count)));
+                }
+
                 None
             }
-            Some(Command::PageTop) => {
+            CommandKind::HalfPageUp => {
+                for _ in 0..command.multiplier {
+                    let offset =
+                        self.state.selected().unwrap_or(0) as i32 - self.rendered_height as i32 / 2;
+                    self.state.select(Some(offset.max(0) as usize));
+                }
+
+                None
+            }
+            CommandKind::PageTop => {
                 self.state.select_first();
                 None
             }
-            Some(Command::PageBottom) => {
+            CommandKind::PageBottom => {
                 self.state.select_last();
                 None
             }
-            Some(Command::Copy) => match &self.status {
+            CommandKind::Copy => match &self.status {
                 Some(QueryStatus::ConnectionError(message)) => Some(Action::Copy(message.clone())),
                 Some(QueryStatus::QueryError(message)) => Some(Action::Copy(message.clone())),
                 Some(QueryStatus::Loading) => None,
                 None => None,
             },
-            Some(Command::Sort) => {
+            CommandKind::Sort => {
                 let Some(column_to_sort) = &self.selected_column_name else {
                     return None;
                 };

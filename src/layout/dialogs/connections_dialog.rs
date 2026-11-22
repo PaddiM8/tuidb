@@ -4,7 +4,7 @@ use ratatui::{Frame, layout::Rect, widgets::Block};
 use crate::{
     config::ConnectionEntry,
     keymap::Keymap,
-    layout::{Action, Command, components::Component, dialogs::find_dialog::FindDialog},
+    layout::{Action, CommandKind, components::Component, dialogs::find_dialog::FindDialog},
     theme::Theme,
 };
 
@@ -43,7 +43,11 @@ impl Component for ConnectionsDialog {
     type Output = Action;
 
     fn handle_key(&mut self, event: KeyEvent) -> Option<Action> {
-        if let Some(Command::Submit) = self.keymap.resolve_event(event)
+        let Some(command) = self.keymap.resolve_event(event) else {
+            return None;
+        };
+
+        if let CommandKind::Submit = command.kind
             && let Some(connection_name) = self.base_dialog.selected_value()
         {
             return Some(Action::OpenConnection(connection_name.to_string()));

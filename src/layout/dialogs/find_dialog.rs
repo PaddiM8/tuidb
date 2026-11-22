@@ -14,7 +14,7 @@ use tui_input::{Input, backend::crossterm::EventHandler};
 
 use crate::{
     keymap::Keymap,
-    layout::{Action, Command, components::Component, dialogs::build_dialog_action},
+    layout::{Action, CommandKind, components::Component, dialogs::build_dialog_action},
     theme::Theme,
 };
 
@@ -146,15 +146,15 @@ impl Component for FindDialog {
     type Output = Action;
 
     fn handle_key(&mut self, event: KeyEvent) -> Option<Action> {
-        if let Some(action) = self.keymap.resolve_event(event) {
-            let base_action = build_dialog_action(&action);
+        if let Some(command) = self.keymap.resolve_event(event) {
+            let base_action = build_dialog_action(&command.kind);
             if base_action.is_some() {
                 return base_action;
             }
 
-            match action {
-                Command::Up => self.state.select_previous(),
-                Command::Down => self.state.select_next(),
+            match command.kind {
+                CommandKind::Up => self.state.select_previous(),
+                CommandKind::Down => self.state.select_next(),
                 _ => (),
             }
 

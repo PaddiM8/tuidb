@@ -12,7 +12,7 @@ use ratatui::{Frame, layout::Rect, widgets::Block};
 
 use crate::keymap::Keymap;
 use crate::layout::components::Component;
-use crate::layout::{Action, Command};
+use crate::layout::{Action, CommandKind};
 use crate::theme::Theme;
 
 pub struct QueryEditor {
@@ -91,7 +91,9 @@ impl Component for QueryEditor {
         }
 
         let action = match self.keymap.resolve_event(event) {
-            Some(Command::RunQuery) => Some(Action::RunRawQuery(self.text())),
+            Some(command) if let CommandKind::RunQuery = command.kind => {
+                Some(Action::RunRawQuery(self.text()))
+            }
             _ => None,
         };
 

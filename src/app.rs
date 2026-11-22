@@ -10,7 +10,7 @@ use crate::{
     database::{DatabaseConnection, QueryOptions, QueryStatus},
     keymap::Keymap,
     layout::{
-        Action, Command, DbEvent, View,
+        Action, Command, CommandKind, DbEvent, View,
         components::{Component, query_editor::QueryEditor},
         dialogs::connections_dialog::ConnectionsDialog,
         main_view::MainView,
@@ -91,8 +91,8 @@ impl App {
             return;
         }
 
-        if let Some(action) = self.keymap.resolve_event(event) {
-            if let Some(built_action) = build_action(action) {
+        if let Some(command) = self.keymap.resolve_event(event) {
+            if let Some(built_action) = build_action(command) {
                 self.handle_action(built_action);
             }
         }
@@ -364,10 +364,10 @@ impl App {
     }
 }
 
-fn build_action(action: Command) -> Option<Action> {
-    match action {
-        Command::CloseDialog => Some(Action::CloseDialog),
-        Command::FindConnection => Some(Action::OpenConnectionsDialog),
+fn build_action(command: Command) -> Option<Action> {
+    match command.kind {
+        CommandKind::CloseDialog => Some(Action::CloseDialog),
+        CommandKind::FindConnection => Some(Action::OpenConnectionsDialog),
         _ => None,
     }
 }

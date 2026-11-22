@@ -15,7 +15,13 @@ pub trait View {
 }
 
 #[derive(Clone, Debug)]
-pub enum Command {
+pub struct Command {
+    pub kind: CommandKind,
+    pub multiplier: u32,
+}
+
+#[derive(Clone, Debug)]
+pub enum CommandKind {
     // Global
     Quit,
 

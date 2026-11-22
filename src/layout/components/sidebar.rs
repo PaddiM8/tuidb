@@ -3,7 +3,7 @@ use ratatui::{prelude::*, widgets::*};
 
 use crate::{
     keymap::Keymap,
-    layout::{Command, components::Component},
+    layout::{CommandKind, components::Component},
     theme::Theme,
 };
 
@@ -62,16 +62,26 @@ impl Component for Sidebar {
     type Output = SidebarEvent;
 
     fn handle_key(&mut self, event: KeyEvent) -> Option<SidebarEvent> {
-        match self.keymap.resolve_event(event) {
-            Some(Command::Down) => {
-                self.state.select_next();
+        let Some(command) = self.keymap.resolve_event(event) else {
+            return None;
+        };
+
+        match command.kind {
+            CommandKind::Down => {
+                for _ in 0..command.multiplier {
+                    self.state.select_next();
+                }
+
                 None
             }
-            Some(Command::Up) => {
-                self.state.select_previous();
+            CommandKind::Up => {
+                for _ in 0..command.multiplier {
+                    self.state.select_previous();
+                }
+
                 None
             }
-            Some(Command::Submit) => self
+            CommandKind::Submit => self
                 .state
                 .selected()
                 .map(|i| SidebarEvent::SubmittedIndex(i)),
