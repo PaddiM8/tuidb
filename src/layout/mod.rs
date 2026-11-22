@@ -36,6 +36,8 @@ pub enum Command {
     Submit,
     HalfPageDown,
     HalfPageUp,
+    PageTop,
+    PageBottom,
 
     // Data
     Sort,

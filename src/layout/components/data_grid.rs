@@ -222,6 +222,14 @@ impl Component for DataGrid {
                 self.state.select(Some(offset.max(0) as usize));
                 None
             }
+            Some(Command::PageTop) => {
+                self.state.select_first();
+                None
+            }
+            Some(Command::PageBottom) => {
+                self.state.select_last();
+                None
+            }
             Some(Command::Copy) => match &self.status {
                 Some(QueryStatus::ConnectionError(message)) => Some(Action::Copy(message.clone())),
                 Some(QueryStatus::QueryError(message)) => Some(Action::Copy(message.clone())),

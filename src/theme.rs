@@ -64,7 +64,7 @@ impl Theme {
             style: Style::new().bg(bg).fg(Color::White),
             border: Style::new().bg(bg).fg(Color::Rgb(64, 64, 64)),
             border_selected: Style::new().bg(bg).fg(Color::Rgb(21, 93, 252)),
-            item_selected: Style::new().bg(Color::Rgb(115, 115, 115)).fg(Color::White),
+            item_selected: Style::new().bg(Color::Rgb(85, 85, 85)).fg(Color::White),
             item_selected_secondary: Style::new().bg(Color::Rgb(38, 38, 38)).fg(Color::White),
             black: Color::Black,
             red: Color::Rgb(193, 0, 7),
