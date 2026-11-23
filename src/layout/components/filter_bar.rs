@@ -11,7 +11,7 @@ use ratatui::widgets::{Block, Paragraph};
 
 use crate::config::ConnectionColor;
 use crate::keymap::Keymap;
-use crate::layout::components::Component;
+use crate::layout::components::{Component, build_edtui_key_handler};
 use crate::layout::{Action, Command, CommandKind, Mode};
 use crate::theme::Theme;
 
@@ -26,11 +26,7 @@ impl FilterBar {
         let mut editor_state = EditorState::default();
         editor_state.mode = edtui::EditorMode::Insert;
 
-        let mut key_handler = KeyEventHandler::vim_mode();
-        key_handler.insert(
-            KeyEventRegister::i(vec![KeyInput::ctrl('w')]),
-            DeleteWordBackward(edtui::actions::DeleteWordBackward(1)),
-        );
+        let key_handler = build_edtui_key_handler();
         let event_handler = EditorEventHandler::new(key_handler);
 
         Self {
