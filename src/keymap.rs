@@ -282,18 +282,22 @@ impl Keymap {
 
         // If it's a digit, just add it to the buffer and return, since we need to wait
         // for an actual command to do anythin with it
-        if buffer && modifier.is_none() && event.code.as_char().is_some_and(|c| c.is_ascii_digit())
-        {
+        let is_leading_zero = matches!(event.code.as_char(), Some('0'))
+            && !self.buffer.iter().any(|e| key_is_digit(e.code));
+        if !is_leading_zero && buffer && modifier.is_none() && key_is_digit(event.code) {
             self.buffer.push(event);
             self.last_unresolved_key_press = Some(Instant::now());
 
-            return Vec::new();
+            return vec![Command {
+                kind: CommandKind::Nop,
+                multiplier: 1,
+            }];
         }
 
         let digits: String = self
             .buffer
             .iter()
-            .take_while(|e| e.code.as_char().is_some_and(|c| c.is_ascii_digit()))
+            .take_while(|e| key_is_digit(e.code))
             .map(|e| e.code.as_char().unwrap())
             .collect();
         let other: Option<&KeyEvent> = self.buffer.iter().skip(digits.len()).last();
@@ -372,4 +376,8 @@ impl Keymap {
             }]
         }
     }
+}
+
+fn key_is_digit(key: KeyCode) -> bool {
+    key.as_char().is_some_and(|c| c.is_ascii_digit())
 }

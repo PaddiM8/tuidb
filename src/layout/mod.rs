@@ -40,6 +40,7 @@ pub struct Command {
 #[serde(rename_all = "snake_case")]
 pub enum CommandKind {
     Unresolved(Vec<KeyEvent>),
+    Nop,
 
     // Global
     Quit,
