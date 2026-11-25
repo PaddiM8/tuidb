@@ -14,8 +14,11 @@ use crate::{
         CommandKind::{self},
         DbEvent, View,
         components::{Component, query_editor::QueryEditor},
-        dialogs::connections_dialog::ConnectionsDialog,
-        main_view::MainView,
+        dialogs::{
+            connections_dialog::ConnectionsDialog,
+            tab_dialog::{TabDialog, TabDialogEntry},
+        },
+        main_view::{MainView, TabId},
         start_view::StartView,
     },
     theme::Theme,
@@ -31,6 +34,7 @@ enum ActiveView {
 enum ActiveDialog {
     None,
     Connections,
+    Tabs,
 }
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
@@ -51,12 +55,14 @@ pub struct App {
     active_main_view_key: Option<ConnectionKey>,
     start_view: StartView,
     connections_dialog: ConnectionsDialog,
+    tab_dialog: TabDialog,
 }
 
 impl App {
     pub fn new(config: Config, theme: Theme, action_tx: UnboundedSender<Action>) -> Self {
         let keymap = Keymap::build_global(&config.keymap.global);
         let connections_keymap = Keymap::build_find_dialog(&config.keymap.find_dialog);
+        let tab_keymap = Keymap::build_find_dialog(&config.keymap.find_dialog);
 
         Self {
             should_quit: false,
@@ -73,12 +79,13 @@ impl App {
             active_view: ActiveView::Start,
             active_dialog: ActiveDialog::Connections,
             connections_dialog: ConnectionsDialog::new(connections_keymap),
+            tab_dialog: TabDialog::new(tab_keymap),
         }
     }
 
     pub fn query_editor_mut(&mut self) -> Option<&mut QueryEditor> {
         self.active_main_view_mut()
-            .and_then(|main_view| Some(main_view.query_editor_mut()))
+            .and_then(|main_view| main_view.active_query_editor_mut())
     }
 
     pub fn handle_key(&mut self, event: KeyEvent) {
@@ -89,6 +96,8 @@ impl App {
 
         let actions = if let ActiveDialog::Connections = self.active_dialog {
             self.connections_dialog.handle_key(event)
+        } else if let ActiveDialog::Tabs = self.active_dialog {
+            self.tab_dialog.handle_key(event)
         } else if let ActiveView::Start = self.active_view {
             self.start_view.handle_key(event)
         } else if let ActiveView::Main = self.active_view {
@@ -119,6 +128,8 @@ impl App {
     pub fn handle_command(&mut self, command: Command) {
         let actions = if let ActiveDialog::Connections = self.active_dialog {
             self.connections_dialog.handle_command(command.clone())
+        } else if let ActiveDialog::Tabs = self.active_dialog {
+            self.tab_dialog.handle_command(command.clone())
         } else if let ActiveView::Start = self.active_view {
             self.start_view.handle_command(command.clone())
         } else if let ActiveView::Main = self.active_view {
@@ -167,14 +178,42 @@ impl App {
             }
         }
 
-        if let ActiveDialog::Connections = self.active_dialog {
-            self.connections_dialog.render(
-                frame,
-                &self.theme,
-                frame.area(),
-                Block::bordered().border_style(self.theme.border_selected),
-                &self.config.connections,
-            );
+        match self.active_dialog {
+            ActiveDialog::Connections => {
+                self.connections_dialog.render(
+                    frame,
+                    &self.theme,
+                    frame.area(),
+                    Block::bordered().border_style(self.theme.border_selected),
+                    &self.config.connections,
+                );
+            }
+            ActiveDialog::Tabs => {
+                let Some(main_view) = self.active_main_view() else {
+                    return;
+                };
+
+                let current_tab_id = main_view.active_tab_id();
+                let entries: Vec<TabDialogEntry> = main_view
+                    .tabs()
+                    .iter()
+                    .rev()
+                    .map(|c| TabDialogEntry {
+                        tab_id: c.tab_id(),
+                        name: c.name(),
+                    })
+                    // Don't include the current tab
+                    .filter(|e| current_tab_id.is_none_or(|t| t != e.tab_id))
+                    .collect();
+                self.tab_dialog.render(
+                    frame,
+                    &self.theme,
+                    frame.area(),
+                    Block::bordered().border_style(self.theme.border_selected),
+                    &entries,
+                );
+            }
+            ActiveDialog::None => (),
         }
     }
 
@@ -200,7 +239,19 @@ impl App {
                 kind: command_kind,
                 multiplier: 1,
             }),
+            Action::OpenTab(tab_id) => {
+                let Some(main_view) = self.active_main_view_mut() else {
+                    return;
+                };
+
+                main_view.open_tab(tab_id);
+                self.set_dialog(ActiveDialog::None);
+            }
             Action::CloseDialog => self.set_dialog(ActiveDialog::None),
+            Action::OpenTabDialog => {
+                self.tab_dialog.reset();
+                self.set_dialog(ActiveDialog::Tabs)
+            }
             Action::OpenConnectionsDialog => {
                 self.connections_dialog.reset();
                 self.set_dialog(ActiveDialog::Connections)
@@ -217,8 +268,10 @@ impl App {
                 };
 
                 let connection_key = ConnectionKey(connection_name.clone(), String::new());
-                self.main_views
-                    .insert(connection_key.clone(), MainView::new(&self.config.keymap));
+                self.main_views.insert(
+                    connection_key.clone(),
+                    MainView::new(self.config.keymap.clone()),
+                );
                 self.active_main_view_key = Some(connection_key.clone());
                 self.set_view(ActiveView::Main);
 
@@ -226,26 +279,30 @@ impl App {
                 tokio::spawn(async move {
                     let action = match DatabaseConnection::connect(&config.backend).await {
                         Ok(connection) => {
-                            Action::Db(connection_key, DbEvent::Connected(connection))
+                            Action::Db(TabId(0), connection_key, DbEvent::Connected(connection))
                         }
                         Err(message) => {
-                            Action::Db(connection_key, DbEvent::ConnectionFailed(message))
+                            Action::Db(TabId(0), connection_key, DbEvent::ConnectionFailed(message))
                         }
                     };
 
                     let _ = tx.send(action);
                 });
             }
-            Action::Db(connection_key, db_event) => self.handle_db_event(connection_key, db_event),
+            Action::Db(tab_id, connection_key, db_event) => {
+                self.handle_db_event(tab_id, connection_key, db_event)
+            }
             Action::Quit => self.should_quit = true,
             Action::OpenTable(table_name) => {
                 let Some(connection_key) = self.active_main_view_key.as_ref() else {
                     return;
                 };
 
-                if let Some(main_view) = self.main_views.get_mut(&connection_key) {
-                    main_view.set_table_name(table_name.clone());
-                }
+                let tab_id = if let Some(main_view) = self.main_views.get_mut(&connection_key) {
+                    main_view.open_table(table_name.clone())
+                } else {
+                    return;
+                };
 
                 let Some(connection) = self.connections.get(&connection_key).cloned() else {
                     return;
@@ -260,8 +317,10 @@ impl App {
                     };
 
                     let action = match connection.query(&table_name, &options).await {
-                        Ok(result) => Action::Db(connection_key, DbEvent::Queried(result)),
-                        Err(message) => Action::Db(connection_key, DbEvent::QueryFailed(message)),
+                        Ok(result) => Action::Db(tab_id, connection_key, DbEvent::Queried(result)),
+                        Err(message) => {
+                            Action::Db(tab_id, connection_key, DbEvent::QueryFailed(message))
+                        }
                     };
 
                     let _ = tx.send(action);
@@ -272,8 +331,15 @@ impl App {
                     return;
                 };
 
-                if let Some(main_view) = self.main_views.get_mut(&connection_key) {
+                let tab_id = if let Some(main_view) = self.main_views.get_mut(&connection_key) {
                     main_view.set_query_status(Some(QueryStatus::Loading));
+                    main_view.active_tab_id()
+                } else {
+                    return;
+                };
+
+                let Some(tab_id) = tab_id else {
+                    return;
                 };
 
                 let Some(connection) = self.connections.get(&connection_key).cloned() else {
@@ -284,8 +350,10 @@ impl App {
                 let connection_key = connection_key.clone();
                 tokio::spawn(async move {
                     let action = match connection.query_raw(&query).await {
-                        Ok(result) => Action::Db(connection_key, DbEvent::Queried(result)),
-                        Err(message) => Action::Db(connection_key, DbEvent::QueryFailed(message)),
+                        Ok(result) => Action::Db(tab_id, connection_key, DbEvent::Queried(result)),
+                        Err(message) => {
+                            Action::Db(tab_id, connection_key, DbEvent::QueryFailed(message))
+                        }
                     };
 
                     let _ = tx.send(action);
@@ -307,17 +375,27 @@ impl App {
                     return;
                 };
 
+                let Some(tab_id) = main_view.active_tab_id() else {
+                    return;
+                };
+
                 let Some(connection) = self.connections.get(&connection_key).cloned() else {
                     return;
                 };
 
                 let tx = self.action_tx.clone();
                 let connection_key = connection_key.clone();
-                let options = main_view.query_options().clone();
+                let Some(options) = main_view.query_options() else {
+                    return;
+                };
+
+                let options = options.clone();
                 tokio::spawn(async move {
                     let action = match connection.query(table_name.as_str(), &options).await {
-                        Ok(result) => Action::Db(connection_key, DbEvent::Queried(result)),
-                        Err(message) => Action::Db(connection_key, DbEvent::QueryFailed(message)),
+                        Ok(result) => Action::Db(tab_id, connection_key, DbEvent::Queried(result)),
+                        Err(message) => {
+                            Action::Db(tab_id, connection_key, DbEvent::QueryFailed(message))
+                        }
                     };
 
                     let _ = tx.send(action);
@@ -339,17 +417,27 @@ impl App {
                     return;
                 };
 
+                let Some(tab_id) = main_view.active_tab_id() else {
+                    return;
+                };
+
                 let Some(connection) = self.connections.get(&connection_key).cloned() else {
                     return;
                 };
 
                 let tx = self.action_tx.clone();
                 let connection_key = connection_key.clone();
-                let options = main_view.query_options().clone();
+                let Some(options) = main_view.query_options().clone() else {
+                    return;
+                };
+
+                let options = options.clone();
                 tokio::spawn(async move {
                     let action = match connection.query(table_name.as_str(), &options).await {
-                        Ok(result) => Action::Db(connection_key, DbEvent::Queried(result)),
-                        Err(message) => Action::Db(connection_key, DbEvent::QueryFailed(message)),
+                        Ok(result) => Action::Db(tab_id, connection_key, DbEvent::Queried(result)),
+                        Err(message) => {
+                            Action::Db(tab_id, connection_key, DbEvent::QueryFailed(message))
+                        }
                     };
 
                     let _ = tx.send(action);
@@ -358,7 +446,7 @@ impl App {
         }
     }
 
-    fn handle_db_event(&mut self, connection_key: ConnectionKey, db_event: DbEvent) {
+    fn handle_db_event(&mut self, tab_id: TabId, connection_key: ConnectionKey, db_event: DbEvent) {
         let Some(main_view) = self.main_views.get_mut(&connection_key) else {
             return;
         };
@@ -370,10 +458,15 @@ impl App {
 
                 main_view.set_query_status(None);
 
+                let Some(tab_id) = main_view.active_tab_id() else {
+                    return;
+                };
+
                 let tx = self.action_tx.clone();
                 tokio::spawn(async move {
                     if let Ok(tables) = connection.tables().await {
-                        let _ = tx.send(Action::Db(connection_key, DbEvent::Tables(tables)));
+                        let _ =
+                            tx.send(Action::Db(tab_id, connection_key, DbEvent::Tables(tables)));
                     }
                 });
             }
@@ -383,11 +476,18 @@ impl App {
             DbEvent::Tables(tables) => main_view.set_tables(tables),
             DbEvent::Queried(query_result) => {
                 main_view.set_query_status(None);
-                main_view.load_result(query_result);
+                main_view.load_result(tab_id, query_result);
             }
             DbEvent::QueryFailed(message) => {
                 main_view.set_query_status(Some(QueryStatus::QueryError(message)))
             }
+        }
+    }
+
+    fn active_main_view(&self) -> Option<&MainView> {
+        match &self.active_main_view_key {
+            Some(key) => self.main_views.get(&key),
+            None => None,
         }
     }
 
@@ -416,7 +516,9 @@ impl App {
 
 fn build_action(command: Command) -> Option<Action> {
     match command.kind {
+        CommandKind::Quit => Some(Action::Quit),
         CommandKind::CloseDialog => Some(Action::CloseDialog),
+        CommandKind::FindTab => Some(Action::OpenTabDialog),
         CommandKind::FindConnection => Some(Action::OpenConnectionsDialog),
         _ => None,
     }

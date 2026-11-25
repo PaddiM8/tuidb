@@ -1,6 +1,4 @@
 use crossterm::event::{KeyCode, KeyEvent};
-use edtui::actions::Action::DeleteWordBackward;
-use edtui::events::{KeyEventHandler, KeyEventRegister, KeyInput};
 use edtui::{
     EditorEventHandler, EditorMode, EditorState, EditorTheme, EditorView, SyntaxHighlighter,
 };

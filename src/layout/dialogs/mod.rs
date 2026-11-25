@@ -4,6 +4,7 @@ use crate::layout::{Action, CommandKind};
 
 pub mod connections_dialog;
 pub mod find_dialog;
+pub mod tab_dialog;
 
 fn centered(area: Rect, w: u16, h: u16) -> Rect {
     let [_, v, _] = Layout::vertical([

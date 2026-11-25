@@ -5,6 +5,7 @@ use crossterm::event::{KeyCode, KeyEvent};
 use crate::{
     app::ConnectionKey,
     database::{DatabaseConnection, QueryResult, QuerySorting},
+    layout::main_view::TabId,
 };
 
 pub mod components;
@@ -50,7 +51,7 @@ pub enum CommandKind {
 
     // Main
     RunQuery,
-    ToggleQueryMode,
+    NewTab,
 
     // Editor
     NormalMode,
@@ -77,6 +78,7 @@ pub enum CommandKind {
 
     // Dialogs
     CloseDialog,
+    FindTab,
     FindConnection,
 }
 
@@ -89,15 +91,17 @@ pub enum Action {
     Copy(String),
 
     // Main
+    OpenTab(TabId),
     OpenConnection(String),
     OpenTable(String),
     RunRawQuery(String),
     Filter(String),
     Sort(Option<QuerySorting>),
-    Db(ConnectionKey, DbEvent),
+    Db(TabId, ConnectionKey, DbEvent),
 
     // Dialogs
     CloseDialog,
+    OpenTabDialog,
     OpenConnectionsDialog,
 }
 

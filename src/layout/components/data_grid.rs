@@ -46,6 +46,7 @@ impl DataGrid {
         }
     }
 
+    // TODO: Call this when querying
     pub fn clear_selection(&mut self) {
         self.horizontal_scroll = 0;
         self.state.select(None);

@@ -1,5 +1,6 @@
 use std::{
     ops::Add,
+    rc::Rc,
     time::{Duration, Instant},
 };
 
@@ -10,6 +11,7 @@ use ratatui::{
     style::{Style, Stylize},
     widgets::{Block, Paragraph},
 };
+use sqlx::query;
 use thousands::Separable;
 
 use crate::{
@@ -21,7 +23,7 @@ use crate::{
         components::{
             Component,
             data_grid::DataGrid,
-            filter_bar::FilterBar,
+            filter_bar::{self, FilterBar},
             query_editor::QueryEditor,
             sidebar::{Sidebar, SidebarEvent},
         },
@@ -38,55 +40,141 @@ enum MainPane {
 
 struct StatusMessage(String, Instant);
 
-pub struct MainView {
-    tables: Vec<String>,
-    active_table_name: Option<String>,
-    last_active_table_name: Option<String>,
-    table_header: Vec<String>,
-    table_rows: Vec<Vec<GridCell>>,
-    reported_row_count: Option<usize>,
-    query_options: QueryOptions,
-    sidebar: Sidebar,
-    query_editor: QueryEditor,
-    filter_bar: FilterBar,
-    grid: DataGrid,
-    keymap: Keymap,
-    active: MainPane,
-    status_message: Option<StatusMessage>,
-    is_fullscreen: bool,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TabId(pub usize);
+
+pub enum Tab {
+    Query(QueryTab),
+    Filter(FilterTab),
 }
 
-impl MainView {
-    pub fn new(keymap_set: &KeymapSet) -> Self {
-        let sidebar = Sidebar::new(Keymap::build_selection(&keymap_set.selection));
-        let query_editor = QueryEditor::new(Keymap::build_editor(&keymap_set.editor));
-        let filter_bar = FilterBar::new(Keymap::build_editor(&keymap_set.editor));
-        let grid = DataGrid::new(Keymap::build_selection(&keymap_set.selection));
+pub struct QueryTab {
+    id: TabId,
+    name: Option<String>,
+    query_editor: QueryEditor,
+    grid: DataGrid,
+    table_header: Vec<String>,
+    table_rows: Vec<Vec<GridCell>>,
+}
 
-        Self {
-            active_table_name: None,
-            last_active_table_name: None,
-            tables: Vec::new(),
+pub struct FilterTab {
+    id: TabId,
+    table_name: String,
+    query_options: QueryOptions,
+    filter_bar: FilterBar,
+    grid: DataGrid,
+    table_header: Vec<String>,
+    table_rows: Vec<Vec<GridCell>>,
+}
+
+impl Tab {
+    pub fn tab_id(&self) -> TabId {
+        match self {
+            Tab::Query(tab) => tab.id,
+            Tab::Filter(tab) => tab.id,
+        }
+    }
+
+    pub fn name(&self) -> String {
+        match self {
+            Tab::Query(tab) => tab.name.clone().unwrap_or(format!("Tab {}", tab.id.0)),
+            Tab::Filter(tab) => tab.table_name.clone(),
+        }
+    }
+
+    fn as_query(&self) -> Option<&QueryTab> {
+        match self {
+            Tab::Query(tab) => Some(tab),
+            _ => None,
+        }
+    }
+
+    fn as_query_mut(&mut self) -> Option<&mut QueryTab> {
+        match self {
+            Tab::Query(tab) => Some(tab),
+            _ => None,
+        }
+    }
+
+    fn as_filter_mut(&mut self) -> Option<&mut FilterTab> {
+        match self {
+            Tab::Filter(tab) => Some(tab),
+            _ => None,
+        }
+    }
+
+    fn as_filter(&self) -> Option<&FilterTab> {
+        match self {
+            Tab::Filter(tab) => Some(tab),
+            _ => None,
+        }
+    }
+
+    fn grid_mut(&mut self) -> &mut DataGrid {
+        match self {
+            Tab::Query(tab) => &mut tab.grid,
+            Tab::Filter(tab) => &mut tab.grid,
+        }
+    }
+
+    fn new_query(id: TabId, keymap_set: &KeymapSet) -> Self {
+        Tab::Query(QueryTab {
+            id: id,
+            name: None,
+            query_editor: QueryEditor::new(Keymap::build_editor(&keymap_set.editor)),
+            grid: DataGrid::new(Keymap::build_selection(&keymap_set.selection)),
             table_header: Vec::new(),
             table_rows: Vec::new(),
-            reported_row_count: None,
+        })
+    }
+
+    fn new_filter(id: TabId, table_name: String, keymap_set: &KeymapSet) -> Self {
+        Tab::Filter(FilterTab {
+            id: id,
+            table_name: table_name,
             query_options: QueryOptions {
                 filter: None,
                 sorting: None,
             },
+            filter_bar: FilterBar::new(Keymap::build_editor(&keymap_set.editor)),
+            grid: DataGrid::new(Keymap::build_selection(&keymap_set.selection)),
+            table_header: Vec::new(),
+            table_rows: Vec::new(),
+        })
+    }
+}
+
+pub struct MainView {
+    tabs: Vec<Tab>,
+    tables: Vec<String>,
+    last_active_table_name: Option<String>, // FIXME: This should be used when pressing ctrl+h in the query editor
+    reported_row_count: Option<usize>,
+    sidebar: Sidebar,
+    keymap: Keymap,
+    keymap_set: Rc<KeymapSet>,
+    active: MainPane,
+    status_message: Option<StatusMessage>,
+    is_fullscreen: bool,
+    next_tab_id: TabId,
+}
+
+impl MainView {
+    pub fn new(keymap_set: Rc<KeymapSet>) -> Self {
+        let sidebar = Sidebar::new(Keymap::build_selection(&keymap_set.selection));
+
+        Self {
+            tabs: vec![Tab::new_query(TabId(0), &keymap_set)],
+            last_active_table_name: None,
+            tables: Vec::new(),
+            reported_row_count: None,
             sidebar: sidebar,
-            query_editor: query_editor,
-            filter_bar: filter_bar,
-            grid: grid,
             keymap: Keymap::build_global(&keymap_set.global),
+            keymap_set: keymap_set.clone(),
             active: MainPane::Query,
             status_message: None,
             is_fullscreen: false,
+            next_tab_id: TabId(1),
         }
-    }
-
-    pub fn query_editor_mut(&mut self) -> &mut QueryEditor {
-        &mut self.query_editor
     }
 
     pub fn set_status_message(&mut self, message: String) {
@@ -103,13 +191,20 @@ impl MainView {
                 actions.extend(self.handle_key_in_sidebar(event));
             }
             MainPane::Query => {
-                if self.is_full_editor() {
-                    actions.extend(self.query_editor.handle_key(event))
-                } else {
-                    actions.extend(self.filter_bar.handle_key(event))
+                if let Some(query_tab) = self.tabs.last_mut().and_then(|t| t.as_query_mut()) {
+                    actions.extend(query_tab.query_editor.handle_key(event))
+                } else if let Some(filter_tab) =
+                    self.tabs.last_mut().and_then(|t| t.as_filter_mut())
+                {
+                    actions.extend(filter_tab.filter_bar.handle_key(event))
                 }
             }
-            MainPane::Grid => actions.extend(self.grid.handle_key(event)),
+            MainPane::Grid => actions.extend(
+                self.tabs
+                    .last_mut()
+                    .map(Tab::grid_mut)
+                    .map_or_default(|grid| grid.handle_key(event)),
+            ),
         }
 
         actions
@@ -119,13 +214,19 @@ impl MainView {
         match self.active {
             MainPane::Sidebar => None,
             MainPane::Query => {
-                if self.is_full_editor() {
-                    self.query_editor.handle_command(command)
+                if let Some(query_editor) = self.active_query_editor_mut() {
+                    query_editor.handle_command(command)
+                } else if let Some(filter_bar) = self.active_filter_bar_mut() {
+                    filter_bar.handle_command(command)
                 } else {
-                    self.filter_bar.handle_command(command)
+                    None
                 }
             }
-            MainPane::Grid => self.grid.handle_command(command),
+            MainPane::Grid => self
+                .tabs
+                .last_mut()
+                .map(Tab::grid_mut)
+                .and_then(|grid| grid.handle_command(command)),
         }
     }
 
@@ -144,46 +245,155 @@ impl MainView {
         match command {
             SidebarEvent::SubmittedIndex(index) => {
                 self.active = MainPane::Grid;
-                self.grid.clear_selection();
-
                 self.tables.get(index).cloned().map(Action::OpenTable)
             }
         }
     }
 
+    fn active_query_editor(&self) -> Option<&QueryEditor> {
+        self.tabs
+            .last()
+            .and_then(|t| t.as_query())
+            .map(|e| &e.query_editor)
+    }
+
+    pub fn active_query_editor_mut(&mut self) -> Option<&mut QueryEditor> {
+        self.tabs
+            .last_mut()
+            .and_then(|t| t.as_query_mut())
+            .map(|e| &mut e.query_editor)
+    }
+
+    fn active_filter_bar(&self) -> Option<&FilterBar> {
+        self.tabs
+            .last()
+            .and_then(|t| t.as_filter())
+            .map(|e| &e.filter_bar)
+    }
+
+    fn active_filter_bar_mut(&mut self) -> Option<&mut FilterBar> {
+        self.tabs
+            .last_mut()
+            .and_then(|t| t.as_filter_mut())
+            .map(|e| &mut e.filter_bar)
+    }
+
+    pub fn active_tab_id(&self) -> Option<TabId> {
+        self.tabs.last().map(|t| t.tab_id())
+    }
+
     pub fn table_name(&self) -> Option<&String> {
-        self.active_table_name.as_ref()
+        self.tabs
+            .last()
+            .and_then(|t| t.as_filter())
+            .map(|t| &t.table_name)
     }
 
-    pub fn set_table_name(&mut self, table_name: String) {
-        self.active_table_name = Some(table_name.clone());
-        self.last_active_table_name = Some(table_name);
+    pub fn open_tab(&mut self, tab_id: TabId) {
+        let tab = self
+            .tabs
+            .iter()
+            .position(|t| t.tab_id() == tab_id)
+            .map(|i| self.tabs.remove(i));
+        if let Some(tab) = tab {
+            self.tabs.push(tab);
+        }
     }
 
-    pub fn load_result(&mut self, result: QueryResult) {
-        self.table_header = result.header;
-        self.table_rows = result.rows;
+    pub fn open_table(&mut self, table_name: String) -> TabId {
+        let existing_tab = self
+            .tabs
+            .iter()
+            .position(|t| {
+                matches!(
+                    t.as_filter().map(|t| t.table_name == table_name),
+                    Some(true)
+                )
+            })
+            .map(|i| self.tabs.remove(i));
+        if let Some(existing_tab) = existing_tab {
+            let tab_id = existing_tab.tab_id();
+            self.tabs.push(existing_tab);
+            self.active = MainPane::Grid;
+
+            tab_id
+        } else {
+            let tab_id = self.next_tab_id;
+            self.tabs
+                .push(Tab::new_filter(tab_id, table_name, &self.keymap_set));
+            self.next_tab_id = TabId(self.next_tab_id.0 + 1);
+            self.active = MainPane::Grid;
+
+            tab_id
+        }
+    }
+
+    pub fn load_result(&mut self, tab_id: TabId, result: QueryResult) {
+        let Some(tab) = self.tabs.iter_mut().find(|t| t.tab_id() == tab_id) else {
+            return;
+        };
+
+        match tab {
+            Tab::Query(query_tab) => {
+                query_tab.table_header = result.header;
+                query_tab.table_rows = result.rows;
+            }
+            Tab::Filter(filter_tab) => {
+                filter_tab.table_header = result.header;
+                filter_tab.table_rows = result.rows;
+            }
+        }
+
         self.reported_row_count = Some(result.row_count);
     }
 
     pub fn set_query_status(&mut self, status: Option<QueryStatus>) {
-        self.grid.set_status(status);
+        if let Some(grid) = self.tabs.last_mut().map(Tab::grid_mut) {
+            grid.set_status(status);
+        }
     }
 
     pub fn set_tables(&mut self, tables: Vec<String>) {
         self.tables = tables;
     }
 
-    pub fn query_options(&self) -> &QueryOptions {
-        &self.query_options
+    pub fn query_options(&self) -> Option<&QueryOptions> {
+        self.tabs
+            .last()
+            .and_then(|t| t.as_filter())
+            .map(|t| &t.query_options)
     }
 
     pub fn set_filter(&mut self, filter: Option<String>) {
-        self.query_options.filter = filter;
+        if let Some(filter_tab) = self.tabs.last_mut().and_then(|t| t.as_filter_mut()) {
+            filter_tab.query_options.filter = filter;
+        }
+    }
+
+    pub fn tabs(&self) -> &Vec<Tab> {
+        &self.tabs
     }
 
     pub fn set_sorting(&mut self, sorting: Option<QuerySorting>) {
-        self.query_options.sorting = sorting;
+        if let Some(filter_tab) = self.tabs.last_mut().and_then(|t| t.as_filter_mut()) {
+            filter_tab.query_options.sorting = sorting;
+        }
+    }
+
+    pub fn mode(&self) -> Mode {
+        match self.active {
+            MainPane::Sidebar => Mode::Normal,
+            MainPane::Query => {
+                if let Some(query_editor) = self.active_query_editor() {
+                    query_editor.mode()
+                } else if let Some(filter_bar) = self.active_filter_bar() {
+                    filter_bar.mode()
+                } else {
+                    Mode::Normal
+                }
+            }
+            MainPane::Grid => Mode::Normal,
+        }
     }
 
     pub fn render(&mut self, frame: &mut Frame, connection: &ConnectionEntry, theme: &Theme) {
@@ -204,8 +414,11 @@ impl MainView {
         let [sidebar_area, main_area] =
             Layout::horizontal([Constraint::Length(24), Constraint::Fill(1)]).areas(content_area);
 
-        let show_full_editor = self.is_full_editor();
-        let editor_area_height = if show_full_editor { 12 } else { 3 };
+        let editor_area_height = if self.active_query_editor().is_some() {
+            12
+        } else {
+            3
+        };
         let [editor_area, grid_area] =
             Layout::vertical([Constraint::Length(editor_area_height), Constraint::Fill(1)])
                 .areas(main_area);
@@ -258,11 +471,14 @@ impl MainView {
         .areas(status_bar_area);
 
         // Mode
-        let mode = if self.is_full_editor() {
-            self.query_editor.mode()
+        let mode = if let Some(query_editor) = self.active_query_editor() {
+            query_editor.mode()
+        } else if let Some(filter_bar) = self.active_filter_bar() {
+            filter_bar.mode()
         } else {
-            self.filter_bar.mode()
+            Mode::Normal
         };
+
         let mode_widget = match mode {
             Mode::Normal => Paragraph::new::<&str>(" NORMAL ").bg(theme.cyan),
             Mode::Insert => Paragraph::new::<&str>(" INSERT ").bg(theme.green),
@@ -304,25 +520,27 @@ impl MainView {
                     .render(frame, theme, area, sidebar_block, &self.tables);
             }
             MainPane::Query => {
-                if self.is_full_editor() {
-                    let editor_block =
-                        self.get_block_for_id("Query", MainPane::Query, theme, connection_color);
-                    self.query_editor.render(frame, theme, area, editor_block);
-                } else {
-                    let filter_block =
-                        self.get_block_for_id("", MainPane::Query, theme, connection_color);
-                    self.filter_bar.render(
+                let query_block =
+                    self.get_block_for_id("Query", MainPane::Query, theme, connection_color);
+                let filter_block =
+                    self.get_block_for_id("", MainPane::Query, theme, connection_color);
+                let is_active = self.active == MainPane::Query;
+
+                if let Some(query_editor) = self.active_query_editor_mut() {
+                    query_editor.render(frame, theme, area, query_block);
+                } else if let Some(filter_bar) = self.active_filter_bar_mut() {
+                    filter_bar.render(
                         frame,
                         theme,
                         connection_color,
                         area,
                         filter_block,
-                        self.active == MainPane::Query,
+                        is_active,
                     );
                 }
             }
             MainPane::Grid => {
-                let title = if let Some(table_name) = &self.active_table_name {
+                let title = if let Some(table_name) = self.table_name() {
                     format!("Rows ({})", table_name)
                 } else {
                     String::from("Rows")
@@ -330,20 +548,24 @@ impl MainView {
 
                 let grid_block =
                     self.get_block_for_id(&title, MainPane::Grid, theme, connection_color);
-                self.grid.render(
-                    frame,
-                    theme,
-                    area,
-                    grid_block,
-                    &self.table_header,
-                    &self.table_rows,
-                );
+
+                let (grid, header, rows) = match self.tabs.last_mut() {
+                    Some(Tab::Query(query_tab)) => (
+                        &mut query_tab.grid,
+                        &query_tab.table_header,
+                        &query_tab.table_rows,
+                    ),
+                    Some(Tab::Filter(filter_tab)) => (
+                        &mut filter_tab.grid,
+                        &filter_tab.table_header,
+                        &filter_tab.table_rows,
+                    ),
+                    None => return,
+                };
+
+                grid.render(frame, theme, area, grid_block, &header, &rows);
             }
         }
-    }
-
-    fn is_full_editor(&self) -> bool {
-        self.active_table_name.is_none()
     }
 
     fn get_block_for_id<'a>(
@@ -371,7 +593,7 @@ impl MainView {
 
 impl View for MainView {
     fn handle_key(&mut self, event: KeyEvent) -> Vec<Action> {
-        let commands = self.keymap.resolve_event(event);
+        let commands = self.keymap.resolve_event_with_mode(event, self.mode());
         if commands.len() > 0 {
             commands
                 .into_iter()
@@ -398,17 +620,12 @@ impl View for MainView {
             ),
             CommandKind::Quit => actions.push(Action::Quit),
             CommandKind::ToggleFullscreen => self.is_fullscreen = !self.is_fullscreen,
-            CommandKind::ToggleQueryMode => {
-                if self.active_table_name.is_none() {
-                    self.active_table_name = self
-                        .last_active_table_name
-                        .clone()
-                        .or(self.tables.first().cloned());
-                } else {
-                    self.active_table_name = None;
-                    self.sidebar.deselect();
-                    self.active = MainPane::Query;
-                }
+            CommandKind::NewTab => {
+                self.tabs
+                    .push(Tab::new_query(self.next_tab_id, &self.keymap_set));
+                self.next_tab_id = TabId(self.next_tab_id.0 + 1);
+                self.sidebar.deselect();
+                self.active = MainPane::Query;
             }
             CommandKind::FocusLeft => {
                 self.sidebar.focus();

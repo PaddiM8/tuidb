@@ -169,12 +169,13 @@ impl Keymap {
         let mut keybinds = HashMap::from([
             (ctrl(Char('q')), CommandKind::Quit),
             (ctrl(Char('f')), CommandKind::FindConnection),
+            (ctrl(Char('a')), CommandKind::FindTab),
             (ctrl(Char('o')), CommandKind::ToggleFullscreen),
             (ctrl(Char('h')), CommandKind::FocusLeft),
             (ctrl(Char('k')), CommandKind::FocusUp),
             (ctrl(Char('l')), CommandKind::FocusRight),
             (ctrl(Char('j')), CommandKind::FocusDown),
-            (ctrl(Char('n')), CommandKind::ToggleQueryMode),
+            (ctrl(Char('n')), CommandKind::NewTab),
             (ctrl(KeyCode::Left), CommandKind::FocusLeft),
             (ctrl(KeyCode::Up), CommandKind::FocusUp),
             (ctrl(KeyCode::Right), CommandKind::FocusRight),
@@ -284,7 +285,12 @@ impl Keymap {
         // for an actual command to do anythin with it
         let is_leading_zero = matches!(event.code.as_char(), Some('0'))
             && !self.buffer.iter().any(|e| key_is_digit(e.code));
-        if !is_leading_zero && buffer && modifier.is_none() && key_is_digit(event.code) {
+        if !is_leading_zero
+            && buffer
+            && !matches!(mode, Mode::Insert | Mode::Search)
+            && modifier.is_none()
+            && key_is_digit(event.code)
+        {
             self.buffer.push(event);
             self.last_unresolved_key_press = Some(Instant::now());
 
@@ -304,7 +310,6 @@ impl Keymap {
 
         // If the pressed key could be followed by a second key, add it to the buffer and return,
         // to wait for a potential second key press
-        // TODO: After the duration has passed and no second key was pressed, asynchronously trigger the key press
         if buffer
             && other.is_none()
             && let Some(double_keys) = self.double_keys_by_mode.get(&mode)

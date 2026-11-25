@@ -1,3 +1,4 @@
+use std::rc::Rc;
 use std::{fs, path::Path};
 
 use color_eyre::eyre::Context;
@@ -13,7 +14,7 @@ use crate::theme::Theme;
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
     pub connections: Vec<ConnectionEntry>,
-    pub keymap: KeymapSet,
+    pub keymap: Rc<KeymapSet>,
     pub theme: Option<String>,
 }
 

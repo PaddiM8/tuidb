@@ -17,7 +17,7 @@ gitignore = "1.0.8"
 nucleo-matcher = "0.3.1"
 ratatui = { version = "0.30.2", features = ["unstable-widget-ref", "serde"] }
 ratatui-table = "0.2.0"
-serde = { version = "1.0.229", features = ["derive"] }
+serde = { version = "1.0.229", features = ["derive", "rc"] }
 sqlx = { version = "0.9.0", features = ["sqlite", "postgres", "mysql", "runtime-tokio"] }
 supports-color = "3.0.2"
 thousands = "0.2.0"

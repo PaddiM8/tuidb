@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use crossterm::event::{Event, KeyEvent};
 use nucleo_matcher::{
     Matcher, Utf32Str,
@@ -18,17 +20,18 @@ use crate::{
     theme::Theme,
 };
 
-pub struct FindDialog {
+pub struct FindDialog<T: Display + Clone> {
     title: String,
     keymap: Keymap,
     matcher: Matcher,
     input: Input,
     state: ListState,
     filtered_indices: Vec<usize>,
-    selected_value: Option<String>,
+    selected_index: Option<usize>,
+    selected_value: Option<T>,
 }
 
-impl FindDialog {
+impl<T: Display + Clone> FindDialog<T> {
     pub fn new(title: String, keymap: Keymap) -> Self {
         let mut state = ListState::default();
         state.select_first();
@@ -40,6 +43,7 @@ impl FindDialog {
             input: Input::new(String::new()),
             state: state,
             filtered_indices: Vec::new(),
+            selected_index: None,
             selected_value: None,
         }
     }
@@ -50,8 +54,12 @@ impl FindDialog {
         self.filtered_indices.clear();
     }
 
-    pub fn selected_value(&self) -> Option<&str> {
-        self.selected_value.as_deref()
+    pub fn selected(&self) -> Option<usize> {
+        self.selected_index
+    }
+
+    pub fn selected_value(&self) -> Option<&T> {
+        self.selected_value.as_ref()
     }
 
     pub fn render(
@@ -60,7 +68,7 @@ impl FindDialog {
         theme: &Theme,
         area: Rect,
         block: Block,
-        items: &Vec<&str>,
+        items: &[&T],
     ) {
         let area = super::centered(area, area.width.min(40), area.height.min(15));
         frame.render_widget(
@@ -109,7 +117,10 @@ impl FindDialog {
             .enumerate()
             .filter_map(|(index, item)| {
                 pattern
-                    .score(Utf32Str::new(&item, &mut buffer), &mut self.matcher)
+                    .score(
+                        Utf32Str::new(&item.to_string(), &mut buffer),
+                        &mut self.matcher,
+                    )
                     .map(|score| (index, score))
             })
             .collect();
@@ -117,21 +128,23 @@ impl FindDialog {
         // Sort by the score
         scored.sort_by(|a, b| b.1.cmp(&a.1));
 
-        if let None = self.selected_value() {
+        if self.state.selected().is_none() {
             self.state.select_first();
         }
 
         self.filtered_indices = scored.iter().map(|(index, _)| index.to_owned()).collect();
-        self.selected_value = self
+        self.selected_index = self
             .state
             .selected()
-            .and_then(|row| self.filtered_indices.get(row))
-            .and_then(|&index| items.get(index))
-            .map(|x| x.to_string());
+            .and_then(|row| self.filtered_indices.get(row).cloned());
+        self.selected_value = self
+            .selected_index
+            .and_then(|i| items.get(i).cloned())
+            .cloned();
 
         let mut results = Vec::new();
         for index in &self.filtered_indices {
-            results.push(items[*index]);
+            results.push(items[*index].to_string());
         }
 
         let list = List::new(results)
@@ -142,7 +155,7 @@ impl FindDialog {
     }
 }
 
-impl Component for FindDialog {
+impl<T: Display + Clone> Component for FindDialog<T> {
     type Output = Action;
 
     fn handle_key(&mut self, event: KeyEvent) -> Vec<Action> {

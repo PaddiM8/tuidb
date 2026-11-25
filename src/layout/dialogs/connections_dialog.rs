@@ -12,7 +12,7 @@ use crate::{
 
 pub struct ConnectionsDialog {
     keymap: Keymap,
-    base_dialog: FindDialog,
+    base_dialog: FindDialog<String>,
 }
 
 impl ConnectionsDialog {
@@ -35,7 +35,7 @@ impl ConnectionsDialog {
         block: Block,
         connections: &Vec<ConnectionEntry>,
     ) {
-        let connection_names = connections.iter().map(|c| c.name.as_ref()).collect();
+        let connection_names: Vec<&String> = connections.iter().map(|c| &c.name).collect();
         self.base_dialog
             .render(frame, theme, area, block, &connection_names)
     }
@@ -45,12 +45,16 @@ impl Component for ConnectionsDialog {
     type Output = Action;
 
     fn handle_key(&mut self, event: KeyEvent) -> Vec<Action> {
-        self.keymap
+        let mut actions: Vec<Action> = self
+            .keymap
             .resolve_event(event)
             .into_iter()
             .filter_map(|c| self.handle_command(c))
             .flatten()
-            .collect()
+            .collect();
+        actions.extend(self.base_dialog.handle_key(event));
+
+        actions
     }
 
     fn handle_command(&mut self, command: Command) -> Option<Vec<Action>> {
