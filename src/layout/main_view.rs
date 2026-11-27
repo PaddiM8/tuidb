@@ -5,7 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crossterm::event::KeyEvent;
+use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
@@ -22,6 +22,7 @@ use crate::{
         Action, Command, CommandKind, Mode, View,
         components::{
             Component,
+            command_bar::CommandBar,
             data_grid::DataGrid,
             filter_bar::FilterBar,
             query_editor::QueryEditor,
@@ -164,6 +165,7 @@ pub struct MainView {
     status_message: Option<StatusMessage>,
     is_fullscreen: bool,
     next_tab_id: TabId,
+    command_bar: Option<CommandBar>,
 }
 
 impl MainView {
@@ -184,6 +186,7 @@ impl MainView {
             status_message: None,
             is_fullscreen: false,
             next_tab_id: TabId(1),
+            command_bar: None,
         }
     }
 
@@ -192,89 +195,6 @@ impl MainView {
             message,
             Instant::now().add(Duration::from_secs(5)),
         ));
-    }
-
-    fn handle_key_in_component(&mut self, event: KeyEvent) -> Vec<Action> {
-        let mut actions = Vec::new();
-        match self.active {
-            MainPane::TableList => {
-                let table_actions: Vec<Action> = self
-                    .table_list
-                    .handle_key(event)
-                    .into_iter()
-                    .filter_map(|c| self.handle_command_in_table_list(c))
-                    .collect();
-                actions.extend(table_actions);
-            }
-            MainPane::TabList => {
-                let tab_list_actions: Vec<Action> = self
-                    .tab_list
-                    .handle_key(event)
-                    .into_iter()
-                    .filter_map(|c| self.handle_command_in_tab_list(c))
-                    .collect();
-                actions.extend(tab_list_actions);
-            }
-            MainPane::Query => {
-                if let Some(query_tab) = self.tabs.last_mut().and_then(|t| t.as_query_mut()) {
-                    actions.extend(query_tab.query_editor.handle_key(event))
-                } else if let Some(filter_tab) =
-                    self.tabs.last_mut().and_then(|t| t.as_filter_mut())
-                {
-                    actions.extend(filter_tab.filter_bar.handle_key(event))
-                }
-            }
-            MainPane::Grid => actions.extend(
-                self.tabs
-                    .last_mut()
-                    .map(Tab::grid_mut)
-                    .map_or_default(|grid| grid.handle_key(event)),
-            ),
-        }
-
-        actions
-    }
-
-    fn handle_command_in_component(&mut self, command: Command) -> Option<Vec<Action>> {
-        match self.active {
-            MainPane::TableList => None,
-            MainPane::TabList => None,
-            MainPane::Query => {
-                if let Some(query_editor) = self.active_query_editor_mut() {
-                    query_editor.handle_command(command)
-                } else if let Some(filter_bar) = self.active_filter_bar_mut() {
-                    filter_bar.handle_command(command)
-                } else {
-                    None
-                }
-            }
-            MainPane::Grid => self
-                .tabs
-                .last_mut()
-                .map(Tab::grid_mut)
-                .and_then(|grid| grid.handle_command(command)),
-        }
-    }
-
-    fn handle_command_in_table_list(&mut self, command: SelectableListEvent) -> Option<Action> {
-        match command {
-            SelectableListEvent::SubmittedIndex(index) => {
-                self.active = MainPane::Grid;
-                self.tables.get(index).cloned().map(Action::OpenTable)
-            }
-        }
-    }
-
-    fn handle_command_in_tab_list(&mut self, command: SelectableListEvent) -> Option<Action> {
-        match command {
-            SelectableListEvent::SubmittedIndex(index) => {
-                if let Some(tab) = self.tabs.get(self.tabs.len() - index - 1) {
-                    self.open_tab(tab.tab_id());
-                }
-            }
-        }
-
-        None
     }
 
     fn active_query_editor(&self) -> Option<&QueryEditor> {
@@ -425,6 +345,20 @@ impl MainView {
         }
     }
 
+    pub fn close_command_bar(&mut self) {
+        self.command_bar = None;
+    }
+
+    pub fn close_tab(&mut self) {
+        self.tabs.pop();
+    }
+
+    pub fn close_all_tabs(&mut self) {
+        self.tabs.clear();
+        self.tabs.push(Tab::new_query(TabId(0), &self.keymap_set));
+        self.next_tab_id = TabId(1);
+    }
+
     pub fn render(&mut self, frame: &mut Frame, connection: &ConnectionEntry, theme: &Theme) {
         if self.is_fullscreen {
             self.render_pane(
@@ -483,13 +417,17 @@ impl MainView {
             editor_area,
         );
 
-        self.render_status_bar(status_bar_area, frame, theme, &connection);
+        if let Some(command_bar) = &mut self.command_bar {
+            command_bar.render(frame, status_bar_area);
+        } else {
+            self.render_status_bar(frame, status_bar_area, theme, &connection);
+        }
     }
 
     fn render_status_bar(
         &self,
-        status_bar_area: Rect,
         frame: &mut Frame,
+        status_bar_area: Rect,
         theme: &Theme,
         connection: &ConnectionEntry,
     ) {
@@ -634,10 +572,105 @@ impl MainView {
             .style(theme.style)
             .border_style(border_style)
     }
+
+    fn handle_key_in_component(&mut self, event: KeyEvent) -> Vec<Action> {
+        let mut actions = Vec::new();
+        match self.active {
+            MainPane::TableList => {
+                let table_actions: Vec<Action> = self
+                    .table_list
+                    .handle_key(event)
+                    .into_iter()
+                    .filter_map(|c| self.handle_command_in_table_list(c))
+                    .collect();
+                actions.extend(table_actions);
+            }
+            MainPane::TabList => {
+                let tab_list_actions: Vec<Action> = self
+                    .tab_list
+                    .handle_key(event)
+                    .into_iter()
+                    .filter_map(|c| self.handle_command_in_tab_list(c))
+                    .collect();
+                actions.extend(tab_list_actions);
+            }
+            MainPane::Query => {
+                if let Some(query_tab) = self.tabs.last_mut().and_then(|t| t.as_query_mut()) {
+                    actions.extend(query_tab.query_editor.handle_key(event))
+                } else if let Some(filter_tab) =
+                    self.tabs.last_mut().and_then(|t| t.as_filter_mut())
+                {
+                    actions.extend(filter_tab.filter_bar.handle_key(event))
+                }
+            }
+            MainPane::Grid => actions.extend(
+                self.tabs
+                    .last_mut()
+                    .map(Tab::grid_mut)
+                    .map_or_default(|grid| grid.handle_key(event)),
+            ),
+        }
+
+        actions
+    }
+
+    fn handle_command_in_component(&mut self, command: Command) -> Option<Vec<Action>> {
+        match self.active {
+            MainPane::TableList => None,
+            MainPane::TabList => None,
+            MainPane::Query => {
+                if let Some(query_editor) = self.active_query_editor_mut() {
+                    query_editor.handle_command(command)
+                } else if let Some(filter_bar) = self.active_filter_bar_mut() {
+                    filter_bar.handle_command(command)
+                } else {
+                    None
+                }
+            }
+            MainPane::Grid => self
+                .tabs
+                .last_mut()
+                .map(Tab::grid_mut)
+                .and_then(|grid| grid.handle_command(command)),
+        }
+    }
+
+    fn handle_command_in_table_list(&mut self, command: SelectableListEvent) -> Option<Action> {
+        match command {
+            SelectableListEvent::SubmittedIndex(index) => {
+                self.active = MainPane::Grid;
+                self.tables.get(index).cloned().map(Action::OpenTable)
+            }
+        }
+    }
+
+    fn handle_command_in_tab_list(&mut self, command: SelectableListEvent) -> Option<Action> {
+        match command {
+            SelectableListEvent::SubmittedIndex(index) => {
+                if let Some(tab) = self.tabs.get(self.tabs.len() - index - 1) {
+                    self.open_tab(tab.tab_id());
+                }
+            }
+        }
+
+        None
+    }
 }
 
 impl View for MainView {
     fn handle_key(&mut self, event: KeyEvent) -> Vec<Action> {
+        if let Some(command_bar) = &mut self.command_bar {
+            return command_bar.handle_key(event);
+        }
+
+        if let KeyCode::Char(':') = event.code {
+            self.command_bar = Some(CommandBar::new(Keymap::build_command_bar(
+                &self.keymap_set.command_bar,
+            )));
+
+            return Vec::new();
+        }
+
         let commands = self.keymap.resolve_event_with_mode(event, self.mode());
         if commands.len() > 0 {
             commands

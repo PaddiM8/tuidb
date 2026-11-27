@@ -58,6 +58,7 @@ pub enum CommandKind {
     // Main
     RunQuery,
     NewTab,
+    CloseCommandBar,
 
     // Editor
     NormalMode,
@@ -94,9 +95,11 @@ pub enum Action {
     Quit,
     WaitForNextKey(CommandKind),
     HandleCommand(CommandKind),
+    HandleCommandString(String),
     Copy(String),
 
     // Main
+    CloseCommandBar,
     OpenTab(TabId),
     OpenConnection(String),
     OpenTable(String),

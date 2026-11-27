@@ -148,6 +148,22 @@ impl App {
         }
     }
 
+    pub fn handle_command_str(&mut self, command_str: String) {
+        match command_str.as_ref() {
+            "q" => {
+                if let Some(main_view) = self.active_main_view_mut() {
+                    main_view.close_tab();
+                }
+            }
+            "qa" => {
+                if let Some(main_view) = self.active_main_view_mut() {
+                    main_view.close_all_tabs();
+                }
+            }
+            _ => (),
+        }
+    }
+
     pub fn render(&mut self, frame: &mut Frame) {
         let area = frame.area();
         frame.buffer_mut().set_style(area, self.theme.style);
@@ -239,6 +255,12 @@ impl App {
                 kind: command_kind,
                 multiplier: 1,
             }),
+            Action::HandleCommandString(command_str) => self.handle_command_str(command_str),
+            Action::CloseCommandBar => {
+                if let Some(main_view) = self.active_main_view_mut() {
+                    main_view.close_command_bar();
+                };
+            }
             Action::OpenTab(tab_id) => {
                 let Some(main_view) = self.active_main_view_mut() else {
                     return;

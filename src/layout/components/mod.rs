@@ -10,6 +10,7 @@ use ratatui::crossterm::event::KeyEvent;
 
 use crate::layout::Command;
 
+pub mod command_bar;
 pub mod data_grid;
 pub mod filter_bar;
 pub mod query_editor;

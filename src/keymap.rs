@@ -277,6 +277,24 @@ impl Keymap {
         base
     }
 
+    pub fn build_command_bar(bindings: &Vec<KeybindConfigEntry>) -> Self {
+        let mut keybinds = HashMap::from([
+            (single(KeyCode::Esc), CommandKind::CloseCommandBar),
+            (single(KeyCode::Enter), CommandKind::Submit),
+            (ctrl(Char('c')), CommandKind::CloseCommandBar),
+        ]);
+
+        let mut double_keys_by_mode = HashMap::new();
+        add_keybinds(&mut keybinds, &mut double_keys_by_mode, bindings);
+
+        Self {
+            keybinds: build_keybind_map(keybinds),
+            double_keys_by_mode: HashMap::new(),
+            buffer: Vec::new(),
+            last_unresolved_key_press: None,
+        }
+    }
+
     pub fn build_editor(bindings: &Vec<KeybindConfigEntry>) -> Self {
         Keymap::build_global(bindings)
     }

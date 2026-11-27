@@ -42,6 +42,7 @@ pub struct KeymapSet {
     pub dialog: Vec<KeybindConfigEntry>,
     pub find_dialog: Vec<KeybindConfigEntry>,
     pub editor: Vec<KeybindConfigEntry>,
+    pub command_bar: Vec<KeybindConfigEntry>,
 }
 
 impl Default for KeymapSet {
@@ -52,6 +53,7 @@ impl Default for KeymapSet {
             dialog: Vec::new(),
             find_dialog: Vec::new(),
             editor: Vec::new(),
+            command_bar: Vec::new(),
         }
     }
 }
