@@ -25,6 +25,12 @@ pub enum Mode {
     Search,
 }
 
+impl Mode {
+    pub fn all() -> Vec<Self> {
+        vec![Mode::Normal, Mode::Insert, Mode::Visual, Mode::Search]
+    }
+}
+
 pub trait View {
     fn handle_key(&mut self, event: KeyEvent) -> Vec<Action>;
 

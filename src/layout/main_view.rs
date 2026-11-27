@@ -1,4 +1,5 @@
 use std::{
+    fmt::Display,
     ops::Add,
     rc::Rc,
     time::{Duration, Instant},
@@ -11,7 +12,6 @@ use ratatui::{
     style::{Style, Stylize},
     widgets::{Block, Paragraph},
 };
-use sqlx::query;
 use thousands::Separable;
 
 use crate::{
@@ -23,9 +23,9 @@ use crate::{
         components::{
             Component,
             data_grid::DataGrid,
-            filter_bar::{self, FilterBar},
+            filter_bar::FilterBar,
             query_editor::QueryEditor,
-            sidebar::{Sidebar, SidebarEvent},
+            selectable_list::{SelectableList, SelectableListEvent},
         },
     },
     theme::Theme,
@@ -33,7 +33,8 @@ use crate::{
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 enum MainPane {
-    Sidebar,
+    TableList,
+    TabList,
     Query,
     Grid,
 }
@@ -144,12 +145,19 @@ impl Tab {
     }
 }
 
+impl Display for Tab {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.name())
+    }
+}
+
 pub struct MainView {
     tabs: Vec<Tab>,
     tables: Vec<String>,
     last_active_table_name: Option<String>, // FIXME: This should be used when pressing ctrl+h in the query editor
     reported_row_count: Option<usize>,
-    sidebar: Sidebar,
+    table_list: SelectableList,
+    tab_list: SelectableList,
     keymap: Keymap,
     keymap_set: Rc<KeymapSet>,
     active: MainPane,
@@ -160,14 +168,16 @@ pub struct MainView {
 
 impl MainView {
     pub fn new(keymap_set: Rc<KeymapSet>) -> Self {
-        let sidebar = Sidebar::new(Keymap::build_selection(&keymap_set.selection));
+        let table_list = SelectableList::new(Keymap::build_selection(&keymap_set.selection));
+        let tab_list = SelectableList::new(Keymap::build_selection(&keymap_set.selection));
 
         Self {
             tabs: vec![Tab::new_query(TabId(0), &keymap_set)],
             last_active_table_name: None,
             tables: Vec::new(),
             reported_row_count: None,
-            sidebar: sidebar,
+            table_list: table_list,
+            tab_list: tab_list,
             keymap: Keymap::build_global(&keymap_set.global),
             keymap_set: keymap_set.clone(),
             active: MainPane::Query,
@@ -187,8 +197,23 @@ impl MainView {
     fn handle_key_in_component(&mut self, event: KeyEvent) -> Vec<Action> {
         let mut actions = Vec::new();
         match self.active {
-            MainPane::Sidebar => {
-                actions.extend(self.handle_key_in_sidebar(event));
+            MainPane::TableList => {
+                let table_actions: Vec<Action> = self
+                    .table_list
+                    .handle_key(event)
+                    .into_iter()
+                    .filter_map(|c| self.handle_command_in_table_list(c))
+                    .collect();
+                actions.extend(table_actions);
+            }
+            MainPane::TabList => {
+                let tab_list_actions: Vec<Action> = self
+                    .tab_list
+                    .handle_key(event)
+                    .into_iter()
+                    .filter_map(|c| self.handle_command_in_tab_list(c))
+                    .collect();
+                actions.extend(tab_list_actions);
             }
             MainPane::Query => {
                 if let Some(query_tab) = self.tabs.last_mut().and_then(|t| t.as_query_mut()) {
@@ -212,7 +237,8 @@ impl MainView {
 
     fn handle_command_in_component(&mut self, command: Command) -> Option<Vec<Action>> {
         match self.active {
-            MainPane::Sidebar => None,
+            MainPane::TableList => None,
+            MainPane::TabList => None,
             MainPane::Query => {
                 if let Some(query_editor) = self.active_query_editor_mut() {
                     query_editor.handle_command(command)
@@ -230,24 +256,25 @@ impl MainView {
         }
     }
 
-    fn handle_key_in_sidebar(&mut self, event: KeyEvent) -> Vec<Action> {
-        let mut actions = Vec::new();
-        for command in self.sidebar.handle_key(event) {
-            if let Some(action) = self.handle_command_in_sidebar(command) {
-                actions.push(action);
-            }
-        }
-
-        actions
-    }
-
-    fn handle_command_in_sidebar(&mut self, command: SidebarEvent) -> Option<Action> {
+    fn handle_command_in_table_list(&mut self, command: SelectableListEvent) -> Option<Action> {
         match command {
-            SidebarEvent::SubmittedIndex(index) => {
+            SelectableListEvent::SubmittedIndex(index) => {
                 self.active = MainPane::Grid;
                 self.tables.get(index).cloned().map(Action::OpenTable)
             }
         }
+    }
+
+    fn handle_command_in_tab_list(&mut self, command: SelectableListEvent) -> Option<Action> {
+        match command {
+            SelectableListEvent::SubmittedIndex(index) => {
+                if let Some(tab) = self.tabs.get(self.tabs.len() - index - 1) {
+                    self.open_tab(tab.tab_id());
+                }
+            }
+        }
+
+        None
     }
 
     fn active_query_editor(&self) -> Option<&QueryEditor> {
@@ -297,6 +324,7 @@ impl MainView {
             .map(|i| self.tabs.remove(i));
         if let Some(tab) = tab {
             self.tabs.push(tab);
+            self.tab_list.select(0);
         }
     }
 
@@ -382,7 +410,8 @@ impl MainView {
 
     pub fn mode(&self) -> Mode {
         match self.active {
-            MainPane::Sidebar => Mode::Normal,
+            MainPane::TableList => Mode::Normal,
+            MainPane::TabList => Mode::Normal,
             MainPane::Query => {
                 if let Some(query_editor) = self.active_query_editor() {
                     query_editor.mode()
@@ -413,6 +442,8 @@ impl MainView {
 
         let [sidebar_area, main_area] =
             Layout::horizontal([Constraint::Length(24), Constraint::Fill(1)]).areas(content_area);
+        let [table_list_area, tab_list_area] =
+            Layout::vertical([Constraint::Fill(1), Constraint::Max(24)]).areas(sidebar_area);
 
         let editor_area_height = if self.active_query_editor().is_some() {
             12
@@ -424,11 +455,18 @@ impl MainView {
                 .areas(main_area);
 
         self.render_pane(
-            MainPane::Sidebar,
+            MainPane::TableList,
             frame,
             theme,
             connection.color.as_ref(),
-            sidebar_area,
+            table_list_area,
+        );
+        self.render_pane(
+            MainPane::TabList,
+            frame,
+            theme,
+            connection.color.as_ref(),
+            tab_list_area,
         );
         self.render_pane(
             MainPane::Grid,
@@ -513,11 +551,18 @@ impl MainView {
         area: Rect,
     ) {
         match pane {
-            MainPane::Sidebar => {
-                let sidebar_block =
-                    self.get_block_for_id("Tables", MainPane::Sidebar, theme, connection_color);
-                self.sidebar
-                    .render(frame, theme, area, sidebar_block, &self.tables);
+            MainPane::TableList => {
+                let table_list_block =
+                    self.get_block_for_id("Tables", MainPane::TableList, theme, connection_color);
+                self.table_list
+                    .render(frame, theme, area, table_list_block, &self.tables);
+            }
+            MainPane::TabList => {
+                let tab_list_block =
+                    self.get_block_for_id("Tabs", MainPane::TabList, theme, connection_color);
+                let tabs: Vec<&Tab> = self.tabs.iter().rev().collect();
+                self.tab_list
+                    .render(frame, theme, area, tab_list_block, &tabs);
             }
             MainPane::Query => {
                 let query_block =
@@ -624,16 +669,28 @@ impl View for MainView {
                 self.tabs
                     .push(Tab::new_query(self.next_tab_id, &self.keymap_set));
                 self.next_tab_id = TabId(self.next_tab_id.0 + 1);
-                self.sidebar.deselect();
+                self.table_list.deselect();
                 self.active = MainPane::Query;
             }
             CommandKind::FocusLeft => {
-                self.sidebar.focus();
-                self.active = MainPane::Sidebar;
+                self.table_list.focus();
+                self.active = MainPane::TableList;
             }
-            CommandKind::FocusUp => self.active = MainPane::Query,
-            CommandKind::FocusRight => self.active = MainPane::Query,
-            CommandKind::FocusDown => self.active = MainPane::Grid,
+            CommandKind::FocusUp => {
+                if self.active == MainPane::TabList {
+                    self.active = MainPane::TableList;
+                } else {
+                    self.active = MainPane::Query;
+                }
+            }
+            CommandKind::FocusRight => self.active = MainPane::Grid,
+            CommandKind::FocusDown => {
+                if self.active == MainPane::TableList {
+                    self.active = MainPane::TabList;
+                } else {
+                    self.active = MainPane::Grid;
+                }
+            }
             _ => return self.handle_command_in_component(command),
         }
 

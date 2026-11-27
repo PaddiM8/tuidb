@@ -23,38 +23,41 @@ pub struct KeyCombo {
     mode: Mode,
 }
 
-fn single(key: KeyCode) -> KeyCombo {
-    KeyCombo {
+fn single(key: KeyCode) -> Vec<KeyCombo> {
+    vec![KeyCombo {
         modifiers: None,
         key: key,
         second_key: None,
         mode: Mode::Normal,
-    }
+    }]
 }
 
-fn ctrl(key: KeyCode) -> KeyCombo {
-    KeyCombo {
-        modifiers: Some(KeyModifiers::CONTROL),
-        key: key,
-        second_key: None,
-        mode: Mode::Normal,
-    }
+fn ctrl(key: KeyCode) -> Vec<KeyCombo> {
+    Mode::all()
+        .into_iter()
+        .map(|mode| KeyCombo {
+            modifiers: Some(KeyModifiers::CONTROL),
+            key: key,
+            second_key: None,
+            mode: mode,
+        })
+        .collect()
 }
 
-fn shift(key: KeyCode) -> KeyCombo {
-    KeyCombo {
+fn shift(key: KeyCode) -> Vec<KeyCombo> {
+    vec![KeyCombo {
         modifiers: Some(KeyModifiers::SHIFT),
         key: key,
         second_key: None,
         mode: Mode::Normal,
-    }
+    }]
 }
 
 fn double(
     double_keys_by_mode: &mut HashMap<Mode, HashSet<KeyEvent>>,
     key: KeyCode,
     second_key: KeyCode,
-) -> KeyCombo {
+) -> Vec<KeyCombo> {
     double_with_mode(double_keys_by_mode, key, second_key, Mode::Normal)
 }
 
@@ -63,19 +66,19 @@ fn double_with_mode(
     key: KeyCode,
     second_key: KeyCode,
     mode: Mode,
-) -> KeyCombo {
+) -> Vec<KeyCombo> {
     if let Some(set) = double_keys_by_mode.get_mut(&mode) {
         set.insert(KeyEvent::from(key));
     } else {
         double_keys_by_mode.insert(mode, HashSet::from([KeyEvent::from(key)]));
     }
 
-    KeyCombo {
+    vec![KeyCombo {
         modifiers: None,
         key: key,
         second_key: Some(second_key),
         mode: mode,
-    }
+    }]
 }
 
 #[derive(Clone)]
@@ -87,7 +90,7 @@ pub struct Keymap {
 }
 
 fn add_keybinds(
-    target: &mut HashMap<KeyCombo, CommandKind>,
+    target: &mut HashMap<Vec<KeyCombo>, CommandKind>,
     double_keys_by_mode: &mut HashMap<Mode, HashSet<KeyEvent>>,
     keybinds: &Vec<KeybindConfigEntry>,
 ) {
@@ -123,8 +126,7 @@ fn add_keybinds(
             second_key: keys.get(1).map(|key| parse_keycode(key)),
             mode: keybind.mode,
         };
-
-        target.insert(key_combo, keybind.command.clone());
+        target.insert(vec![key_combo], keybind.command.clone());
     }
 }
 
@@ -164,6 +166,29 @@ fn parse_keycode(value: &str) -> KeyCode {
     }
 }
 
+fn build_keybind_map(
+    keybinds: HashMap<Vec<KeyCombo>, CommandKind>,
+) -> HashMap<KeyCombo, CommandKind> {
+    let mut result = HashMap::new();
+    for (key_combos, command) in keybinds {
+        for key_combo in key_combos {
+            result.insert(key_combo, command.clone());
+        }
+    }
+
+    result
+}
+
+fn insert_keybind(
+    target: &mut HashMap<KeyCombo, CommandKind>,
+    key_combos: Vec<KeyCombo>,
+    command: CommandKind,
+) {
+    for key_combo in key_combos {
+        target.insert(key_combo, command.clone());
+    }
+}
+
 impl Keymap {
     pub fn build_global(bindings: &Vec<KeybindConfigEntry>) -> Self {
         let mut keybinds = HashMap::from([
@@ -188,7 +213,7 @@ impl Keymap {
         add_keybinds(&mut keybinds, &mut double_keys_by_mode, bindings);
 
         Self {
-            keybinds,
+            keybinds: build_keybind_map(keybinds),
             double_keys_by_mode: double_keys_by_mode,
             buffer: Vec::new(),
             last_unresolved_key_press: None,
@@ -217,7 +242,7 @@ impl Keymap {
         add_keybinds(&mut keybinds, &mut double_keys_by_mode, bindings);
 
         Self {
-            keybinds,
+            keybinds: build_keybind_map(keybinds),
             double_keys_by_mode: HashMap::new(),
             buffer: Vec::new(),
             last_unresolved_key_press: None,
@@ -235,7 +260,7 @@ impl Keymap {
         add_keybinds(&mut keybinds, &mut double_keys_by_mode, bindings);
 
         Self {
-            keybinds,
+            keybinds: build_keybind_map(keybinds),
             double_keys_by_mode: HashMap::new(),
             buffer: Vec::new(),
             last_unresolved_key_press: None,
@@ -244,11 +269,10 @@ impl Keymap {
 
     pub fn build_find_dialog(bindings: &Vec<KeybindConfigEntry>) -> Self {
         let mut base = Keymap::build_dialog(bindings);
-        base.keybinds.insert(single(KeyCode::Up), CommandKind::Up);
-        base.keybinds
-            .insert(single(KeyCode::Down), CommandKind::Down);
-        base.keybinds.insert(ctrl(Char('p')), CommandKind::Up);
-        base.keybinds.insert(ctrl(Char('n')), CommandKind::Down);
+        insert_keybind(&mut base.keybinds, single(KeyCode::Up), CommandKind::Up);
+        insert_keybind(&mut base.keybinds, single(KeyCode::Down), CommandKind::Down);
+        insert_keybind(&mut base.keybinds, ctrl(Char('p')), CommandKind::Up);
+        insert_keybind(&mut base.keybinds, ctrl(Char('n')), CommandKind::Down);
 
         base
     }

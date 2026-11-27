@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use crossterm::event::KeyEvent;
 use ratatui::{prelude::*, widgets::*};
 
@@ -7,20 +9,21 @@ use crate::{
     theme::Theme,
 };
 
-pub enum SidebarEvent {
+pub enum SelectableListEvent {
     SubmittedIndex(usize),
 }
 
-pub struct Sidebar {
+pub struct SelectableList {
     state: ListState,
     keymap: Keymap,
     last_selected: Option<usize>,
 }
 
-impl Sidebar {
+impl SelectableList {
     pub fn new(keymap: Keymap) -> Self {
         let mut state = ListState::default();
         state.select(Some(0));
+
         Self {
             state,
             keymap,
@@ -34,19 +37,23 @@ impl Sidebar {
         }
     }
 
+    pub fn select(&mut self, index: usize) {
+        self.state.select(Some(index));
+    }
+
     pub fn deselect(&mut self) {
         self.state.select(None);
     }
 
-    pub fn render(
+    pub fn render<T: Display>(
         &mut self,
         frame: &mut Frame,
         theme: &Theme,
         area: Rect,
         block: Block,
-        items: &Vec<String>,
+        items: &[T],
     ) {
-        let list = List::new(items.iter().map(|s| s.as_str()))
+        let list = List::new(items.iter().map(|s| s.to_string()))
             .block(block)
             .highlight_style(theme.item_selected);
 
@@ -58,10 +65,10 @@ impl Sidebar {
     }
 }
 
-impl Component for Sidebar {
-    type Output = SidebarEvent;
+impl Component for SelectableList {
+    type Output = SelectableListEvent;
 
-    fn handle_key(&mut self, event: KeyEvent) -> Vec<SidebarEvent> {
+    fn handle_key(&mut self, event: KeyEvent) -> Vec<SelectableListEvent> {
         self.keymap
             .resolve_event(event)
             .into_iter()
@@ -70,7 +77,7 @@ impl Component for Sidebar {
             .collect()
     }
 
-    fn handle_command(&mut self, command: Command) -> Option<Vec<SidebarEvent>> {
+    fn handle_command(&mut self, command: Command) -> Option<Vec<SelectableListEvent>> {
         let mut actions = Vec::new();
         match command.kind {
             CommandKind::Down => {
@@ -85,7 +92,7 @@ impl Component for Sidebar {
             }
             CommandKind::Submit => {
                 if let Some(index) = self.state.selected() {
-                    actions.push(SidebarEvent::SubmittedIndex(index));
+                    actions.push(SelectableListEvent::SubmittedIndex(index));
                 }
             }
             _ => return None,

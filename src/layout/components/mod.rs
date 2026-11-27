@@ -13,7 +13,7 @@ use crate::layout::Command;
 pub mod data_grid;
 pub mod filter_bar;
 pub mod query_editor;
-pub mod sidebar;
+pub mod selectable_list;
 
 pub trait Component {
     type Output;
