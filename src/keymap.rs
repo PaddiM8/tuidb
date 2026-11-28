@@ -193,7 +193,8 @@ impl Keymap {
     pub fn build_global(bindings: &Vec<KeybindConfigEntry>) -> Self {
         let mut keybinds = HashMap::from([
             (ctrl(Char('q')), CommandKind::Quit),
-            (ctrl(Char('f')), CommandKind::FindConnection),
+            (ctrl(Char('f')), CommandKind::FocusQuery),
+            (ctrl(Char('p')), CommandKind::FindConnection),
             (ctrl(Char('a')), CommandKind::FindTab),
             (ctrl(Char('o')), CommandKind::ToggleFullscreen),
             (ctrl(Char('h')), CommandKind::FocusLeft),

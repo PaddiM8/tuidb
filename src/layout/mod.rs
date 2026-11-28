@@ -1,5 +1,3 @@
-use std::time::Instant;
-
 use crossterm::event::{KeyCode, KeyEvent};
 
 use crate::{
@@ -56,6 +54,7 @@ pub enum CommandKind {
     RawKey(KeyCode),
 
     // Main
+    FocusQuery,
     RunQuery,
     NewTab,
     CloseCommandBar,

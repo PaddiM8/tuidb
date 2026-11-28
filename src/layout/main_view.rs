@@ -724,6 +724,7 @@ impl View for MainView {
                     self.active = MainPane::Grid;
                 }
             }
+            CommandKind::FocusQuery => self.active = MainPane::Query,
             _ => return self.handle_command_in_component(command),
         }
 
