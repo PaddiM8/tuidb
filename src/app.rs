@@ -269,7 +269,13 @@ impl App {
                 main_view.open_tab(tab_id);
                 self.set_dialog(ActiveDialog::None);
             }
-            Action::CloseDialog => self.set_dialog(ActiveDialog::None),
+            Action::CloseDialog => {
+                if self.active_view == ActiveView::Start {
+                    self.should_quit = true;
+                }
+
+                self.set_dialog(ActiveDialog::None);
+            }
             Action::OpenTabDialog => {
                 self.tab_dialog.reset();
                 self.set_dialog(ActiveDialog::Tabs)
