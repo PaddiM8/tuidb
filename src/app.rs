@@ -296,6 +296,13 @@ impl App {
                 };
 
                 let connection_key = ConnectionKey(connection_name.clone(), String::new());
+                if self.main_views.get(&connection_key).is_some() {
+                    self.active_main_view_key = Some(connection_key.clone());
+                    self.set_view(ActiveView::Main);
+
+                    return;
+                }
+
                 self.main_views.insert(
                     connection_key.clone(),
                     MainView::new(self.config.keymap.clone()),
